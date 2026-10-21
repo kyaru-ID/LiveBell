@@ -1,6 +1,6 @@
 [package]
 name = "livebell"
-version = "2.1.0"
+version = "2.1.1"
 description = "LiveBell - 主播开播提醒与弹幕悬浮窗"
 authors = ["kyaru"]
 edition = "2021"

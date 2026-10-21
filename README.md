@@ -13,6 +13,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%201809%2B%20%7C%2011-0078D4?style=flat-square">
   <img alt="便携版" src="https://img.shields.io/badge/portable-%E5%85%8D%E5%AE%89%E8%A3%85-2ea043?style=flat-square">
   <img alt="技术栈" src="https://img.shields.io/badge/Tauri%202-Rust%20%2B%20React%2019-24C8DB?style=flat-square">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-087f8f?style=flat-square">
 </p>
 
 <p align="center"><a href="https://github.com/kyaru-ID/LiveBell/releases/latest"><b>下载最新版本 →</b></a></p>
@@ -104,9 +105,9 @@ LiveBell 只做两件事，都围绕「看 B 站直播」：
 - **单实例**：再启动一次不会开出第二个程序，而是把已有窗口唤到前面
 - **托盘常驻**：关掉窗口后仍在托盘运行，菜单里能直接连接房间、发弹幕、开关弹幕窗、打开设置
 - **开机自启**：写 `HKCU\...\CurrentVersion\Run`，可选静默后台启动（`--background`）
-- **便携模式**：数据全放在程序目录的 `Data/`，不写 `%APPDATA%`
-- **更新**：下载新版本的 zip，**覆盖同一个目录**即可——数据都在旁边的 `Data/` 里，覆盖程序不会丢
-  - 「关于」页的「启动时检查更新」默认关闭；自动更新目前还没启用，请手动到 [Releases](https://github.com/kyaru-ID/LiveBell/releases/latest) 下载
+- **便携模式**：数据全放在程序目录的 `Data/`，不写 `%APPDATA%`；安装版默认装到 `%LOCALAPPDATA%\LiveBell`，安装时可以改路径
+- **自动更新**：程序读 [Releases](https://github.com/kyaru-ID/LiveBell/releases/latest) 里的 `latest.json`，有新版本可以在「关于」页直接下载安装，安装程序会静默覆盖到原目录，`Data/` 不受影响
+  - 「关于」页的「启动时检查更新」默认关闭，需要手动点「检查更新」
 
 ### 运维与调试
 
@@ -130,11 +131,13 @@ LiveBell 只做两件事，都围绕「看 B 站直播」：
 
 ## 快速开始
 
-1. 到 [Releases](https://github.com/kyaru-ID/LiveBell/releases/latest) 下载最新的 `LiveBell-v*-portable.zip`
-2. 解压到一个**单独的文件夹**（不建议放桌面或「下载」目录，那里文件太杂）
-3. 双击 `LiveBell.exe`
+1. 到 [Releases](https://github.com/kyaru-ID/LiveBell/releases/latest) 下载最新的 `LiveBell_x.y.z_x64-setup.exe`
+2. 双击安装，选一个**单独的文件夹**（不建议放桌面或「下载」目录，那里文件太杂）
+3. 装好后运行 LiveBell
 4. 点右上角「＋ 添加主播」，填房间号、直播间链接或主播名都行
 5. 想收 Windows 系统通知的话，到设置里打开「开机自启动」，关窗口会缩到托盘继续监听
+
+也可以下载 `LiveBell-v*-portable.zip` 解压即用——便携版没有自动更新，升级时手动覆盖程序文件即可。
 
 要调设置：主窗口右上「设置」，或者托盘右键菜单。
 
@@ -145,8 +148,8 @@ LiveBell 只做两件事，都围绕「看 B 站直播」：
 
 ## 常见问题
 
-**需要安装吗？要管理员权限吗？**
-不需要安装，也不用管理员权限，解压即用。数据都在程序目录的 `Data/` 里，不写 `%APPDATA%`；
+**需要管理员权限吗？**
+不需要。安装版按当前用户装到 `%LOCALAPPDATA%\LiveBell`（安装时可改路径），便携版解压即用。数据都在程序目录的 `Data/` 里，不写 `%APPDATA%`；
 注册表只在两处动过：开「开机自启」时写的一条 `HKCU\...\Run`，以及系统通知需要的 `AppUserModelId` 项。
 
 **为什么 Windows 提示「已保护你的电脑」？**
@@ -180,6 +183,9 @@ npm run tauri dev
 npm run build                                        # 前端 → dist/
 cd src-tauri
 cargo build --release --features custom-protocol     # 后端 → target\release\livebell.exe
+
+# 打安装包（NSIS，自动更新用）
+npx tauri build --bundles nsis                       # → target\release\bundle\nsis\
 ```
 
 ## 项目结构
@@ -230,6 +236,12 @@ cd src-tauri; cargo test           # 后端：协议解析、过滤、房间管�
 
 ## 致谢
 
-- 弹幕渲染思路与过滤规则语义参考了 [Drift](https://github.com/proudzhao/Drift)（B 站直播弹幕客户端）
+- 弹幕渲染思路与过滤规则语义参考了 [Drift](https://github.com/proudzhao/Drift)（B 站直播弹幕客户端，MIT 许可，声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)）
 - LiveBell 的起点是 [EheRing](https://github.com/ibukidvko/EheRing)（B 站开播提醒，C# 便携版）
 - [Tauri](https://tauri.app/)、[React](https://react.dev/)、[Tailwind CSS](https://tailwindcss.com/)
+
+---
+
+## 许可
+
+本项目以 [MIT 许可证](LICENSE) 发布。参考过的第三方作品及其许可声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
