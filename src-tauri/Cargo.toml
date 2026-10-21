@@ -1,0 +1,65 @@
+[package]
+name = "livebell"
+version = "2.1.0"
+description = "LiveBell - 主播开播提醒与弹幕悬浮窗"
+authors = ["kyaru"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+# 生产构建必须启用这个 feature（`cargo build --release --features custom-protocol`）。
+# 不加它 Tauri 会判定为 dev 模式（tauri-2.11.2/build.rs:257 `let dev = !custom_protocol;`），
+# 窗口去加载 http://localhost:1420，双击 exe 只会看到「无法访问此页面 / ERR_CONNECTION_REFUSED」。
+custom-protocol = ["tauri/custom-protocol"]
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "livebell_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# protocol-asset：把本地头像文件（Data/Avatars）通过 asset 协议给 webview 加载。
+tauri = { version = "2", features = ["image-png", "macos-private-api", "protocol-asset", "tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "time", "sync", "fs", "io-util"] }
+chrono = { version = "0.4", features = ["clock"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
+reqwest = { version = "0.12", default-features = false, features = ["brotli", "deflate", "gzip", "json", "rustls-tls"] }
+flate2 = "1"
+brotli = "8"
+md5 = "0.8"
+percent-encoding = "2"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "local-time"] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Data_Xml_Dom",
+    "UI_Notifications",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
+winreg = "0.55"
+
+[dev-dependencies]
+tempfile = "3"

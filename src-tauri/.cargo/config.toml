@@ -1,0 +1,9 @@
+# 本机 MSVC 14.42.34433 上，cc-rs 在 debug 构建给 C 代码加 "-Z7" 会让 cl 报
+#   D8050 : 无法执行 c1.dll : 未能将命令行放入调试记录中
+# 导致 ring 等带 C 代码的 crate 编译失败（手动用同样的命令行直接跑 cl 却能成功）。
+# 这里让 cc-rs 不注入默认 flags，再由 CFLAGS 补回必要项（故意不含 -Z7）。
+# /O2 是补偿被去掉的默认优化等级，避免 release 下 ring 的 C 代码不优化。
+# Rust 侧调试信息由 profile.dev.debug 控制，不受此处影响。
+[env]
+CRATE_CC_NO_DEFAULTS = "1"
+CFLAGS = "-nologo -MD -Brepro -W4 /Gy /Zc:wchar_t /Zc:forScope /Zc:inline /O2"

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="presentation">
+  <!-- LiveBell 图标：圆环铃。与托盘 / exe 图标同一套几何 -->
+  <g fill="#62d7e4">
+    <circle cx="50.0" cy="38.14" r="15.64" />
+    <polygon points="34.516,37.358 65.484,37.358 73.0,66.5 27.0,66.5" />
+    <rect x="24.24" y="60.52" width="51.52" height="8.073" rx="2.99" />
+    <circle cx="50" cy="73.837" r="4.37" />
+  </g>
+  <circle cx="50" cy="50" r="37.5" fill="none" stroke="#62d7e4" stroke-width="5.2" />
+</svg>

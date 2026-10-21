@@ -1,0 +1,428 @@
+@import "./styles/control-panel.css";
+
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #ffffff;
+  background: transparent;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Runtime danmaku styles stay here: animation, CSS variables, inline emotes, and message-type effects are not Tailwind-owned. */
+.danmaku {
+  position: absolute;
+  left: calc(100% + 32px);
+  max-width: max-content;
+  white-space: nowrap;
+  color: #ffffff;
+  font-size: var(--danmaku-font-size, 20px);
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1;
+  opacity: var(--danmaku-opacity, 0.94);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.85),
+    0 0 4px rgba(0, 0, 0, 0.8),
+    1px 0 1px rgba(0, 0, 0, 0.7),
+    -1px 0 1px rgba(0, 0, 0, 0.7);
+  animation-name: drift-across;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  will-change: transform;
+}
+
+.danmaku-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
+}
+
+.danmaku-user-prefix {
+  color: var(--username-color, #c7d0d9);
+  font-weight: 800;
+}
+
+.danmaku-user-prefix,
+.danmaku-text-segment {
+  display: inline-block;
+}
+
+/* 多房间弹幕的来源色：弹幕来源标签与同接徽章的圆点共用这一组色值。 */
+:root {
+  --drift-room-source-color-0: #42d7e8;
+  --drift-room-source-color-1: #f4b74a;
+  --drift-room-source-color-2: #a78bfa;
+  --drift-room-source-color-3: #fb7185;
+  --drift-room-source-color-4: #4ade80;
+}
+
+.danmaku-room-source {
+  --danmaku-room-source-accent: var(--drift-room-source-color-0);
+
+  display: inline-block;
+  max-width: 8em;
+  overflow: hidden;
+  padding: 0.16em 0.42em;
+  border: 1px solid
+    color-mix(in srgb, var(--danmaku-room-source-accent) 68%, transparent);
+  border-radius: 3px;
+  color: color-mix(
+    in srgb,
+    var(--danmaku-room-source-accent) 72%,
+    white
+  );
+  background: color-mix(
+    in srgb,
+    var(--danmaku-room-source-accent) 18%,
+    var(--drift-ui-overlay-control)
+  );
+  font-size: 0.66em;
+  font-weight: 750;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: none;
+}
+
+.danmaku-emote {
+  display: inline-block;
+  width: auto;
+  /* B 站默认小表情（[dog]、[藏狐] 这类「黄豆表情」）：与文字同高，不随「表情大小」变。
+     高度用 em，所以字号一变它自然跟着变。 */
+  height: 1em;
+  max-height: none;
+  object-fit: contain;
+  vertical-align: middle;
+  filter:
+    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.78))
+    drop-shadow(0 0 2px rgba(0, 0, 0, 0.72));
+}
+
+/* 直播间 / 收藏集的大表情：只有它跟随设置里的「表情大小」缩放（0.5–2.0）。
+   这两个算式必须与 danmakuRuntime.ts 的 estimateSegmentWidth 完全一致——
+   那边要用它算宽度来排轨道，算错就会叠字。 */
+.danmaku-emote.is-room {
+  height: calc(1.55em * var(--danmaku-emote-scale, 1));
+  max-height: calc(34px * var(--danmaku-emote-scale, 1));
+}
+
+.danmaku-gift {
+  color: #fff4d6;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.82),
+    0 0 5px rgba(245, 166, 35, 0.86),
+    1px 0 1px rgba(0, 0, 0, 0.68),
+    -1px 0 1px rgba(0, 0, 0, 0.68);
+}
+
+.danmaku-guard {
+  color: #e9fbff;
+  font-weight: 750;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.82),
+    0 0 6px rgba(76, 201, 240, 0.9),
+    0 0 12px rgba(255, 214, 102, 0.42),
+    1px 0 1px rgba(0, 0, 0, 0.68),
+    -1px 0 1px rgba(0, 0, 0, 0.68);
+}
+
+.danmaku-super_chat {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  min-height: calc(var(--danmaku-font-size, 20px) + 10px);
+  padding: 3px 10px 3px 6px;
+  border: 1px solid var(--super-chat-color, #f5a962);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: rgba(24, 20, 15, 0.56);
+  color: #fff8ea;
+  font-weight: 760;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.36),
+    0 0 10px rgba(245, 169, 98, 0.26);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 4px rgba(0, 0, 0, 0.72);
+}
+
+.danmaku-super-chat-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+
+.danmaku-super-chat-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35em;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--super-chat-color, #f5a962);
+  color: #1c1409;
+  font-size: 0.72em;
+  font-weight: 800;
+  text-shadow: none;
+}
+
+.danmaku-super-chat-text {
+  display: inline-block;
+}
+
+.danmaku.is-highlighted {
+  color: #dfffe8;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.82),
+    0 0 6px rgba(52, 199, 89, 0.86),
+    0 0 12px rgba(255, 255, 255, 0.28),
+    1px 0 1px rgba(0, 0, 0, 0.68),
+    -1px 0 1px rgba(0, 0, 0, 0.68);
+}
+
+.danmaku.is-followed::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -7px;
+  width: 3px;
+  height: 1.35em;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: #ff6fbe;
+  box-shadow: 0 0 6px rgba(255, 111, 190, 0.55);
+}
+
+.danmaku.is-followed .danmaku-user-prefix {
+  color: #ff6fbe;
+  font-weight: 800;
+}
+
+.danmaku.is-self {
+  outline: 1.5px solid currentColor;
+  outline-offset: 2px;
+}
+
+.vertical-chat-overlay {
+  box-sizing: border-box;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  background: rgba(8, 18, 31, 0.58);
+  box-shadow: 0 10px 28px rgba(2, 8, 23, 0.2);
+  opacity: var(--danmaku-opacity, 0.94);
+}
+
+.vertical-chat-scroll {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 100%);
+}
+
+.vertical-chat-flow {
+  box-sizing: border-box;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 12px;
+}
+
+.vertical-chat-message {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+  font-size: var(--danmaku-font-size, 20px);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  animation: vertical-chat-row-fade-in 160ms ease-out both;
+}
+
+.danmaku-room-source[data-source-color="1"],
+.danmaku-online-dot[data-source-color="1"] {
+  --danmaku-room-source-accent: var(--drift-room-source-color-1);
+}
+
+.danmaku-room-source[data-source-color="2"],
+.danmaku-online-dot[data-source-color="2"] {
+  --danmaku-room-source-accent: var(--drift-room-source-color-2);
+}
+
+.danmaku-room-source[data-source-color="3"],
+.danmaku-online-dot[data-source-color="3"] {
+  --danmaku-room-source-accent: var(--drift-room-source-color-3);
+}
+
+.danmaku-room-source[data-source-color="4"],
+.danmaku-online-dot[data-source-color="4"] {
+  --danmaku-room-source-accent: var(--drift-room-source-color-4);
+}
+
+/* 多房间并行连接时的同接数徽章（右上角）：先合计，再每间一条明细。 */
+.danmaku-online-badges {
+  pointer-events: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  max-width: 72%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  opacity: var(--danmaku-opacity, 0.94);
+}
+
+.danmaku-online-badge {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  max-width: 172px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(10, 14, 20, 0.52);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+
+.danmaku-online-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.danmaku-online-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danmaku-room-source-accent, var(--drift-room-source-color-0));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.vertical-chat-message .danmaku-content {
+  display: inline;
+  line-height: inherit;
+}
+
+.vertical-chat-message .danmaku-room-source {
+  margin-right: 0.3em;
+  vertical-align: 0.08em;
+}
+
+.vertical-chat-message .danmaku-text-segment,
+.vertical-chat-message .danmaku-super-chat-text {
+  display: inline;
+}
+
+.vertical-chat-message .danmaku-super-chat-content {
+  flex-wrap: wrap;
+  line-height: inherit;
+}
+
+.vertical-chat-super_chat {
+  padding-left: 10px;
+  box-shadow: inset 4px 0 0 var(--super-chat-color, #f5a962);
+}
+
+.vertical-chat-gift {
+  color: #fff4d6;
+}
+
+.vertical-chat-guard {
+  color: #e9fbff;
+  font-weight: 750;
+}
+
+.vertical-chat-message.is-highlighted {
+  box-shadow: inset 3px 0 0 rgba(52, 199, 89, 0.86);
+}
+
+.vertical-chat-message.is-followed {
+  box-shadow: inset 3px 0 0 #ff6fbe;
+}
+
+.vertical-chat-message.is-followed .danmaku-user-prefix {
+  color: #ff6fbe;
+  font-weight: 800;
+}
+
+.vertical-chat-message.is-self {
+  outline: 1.5px solid currentColor;
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vertical-chat-scroll {
+    scroll-behavior: auto;
+  }
+
+  .vertical-chat-message {
+    animation: none;
+  }
+}
+
+@keyframes drift-across {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-100vw - 100% - 64px));
+  }
+}
+
+@keyframes vertical-chat-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: var(--danmaku-opacity, 0.94);
+  }
+}
+
+@keyframes vertical-chat-row-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}

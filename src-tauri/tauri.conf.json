@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LiveBell",
+  "version": "2.1.0",
+  "identifier": "com.kyaru.livebell",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LiveBell",
+        "width": 1280,
+        "height": 220,
+        "x": 120,
+        "y": 120,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": true,
+        "visible": false
+      },
+      {
+        "label": "control",
+        "title": "LiveBell 设置",
+        "width": 720,
+        "height": 620,
+        "center": true,
+        "transparent": false,
+        "decorations": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "resizable": true,
+        "dragDropEnabled": false,
+        "minWidth": 440,
+        "minHeight": 420,
+        "visible": false
+      }
+    ],
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$DATA/**", "$APPLOCALDATA/**", "$APPDATA/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY5OTI4OTEwREU3MjNBMjkKUldRcE9uTGVFSW1TK1pYN21RcmJ3Mm1pRkNNWUJXTTRXSUNOZVA5VWdhSUNaZFhuQkMvNWNMSy8K",
+      "endpoints": [
+        "https://github.com/kyaru-ID/LiveBell/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

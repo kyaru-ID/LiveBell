@@ -1,0 +1,6 @@
+# 统一用 LF 换行。
+# 理由：有若干测试用 Vite 的 ?raw 直接读 CSS/TSX 源码文本并断言其中的 "\n"（例如
+# rust/src/components/OverlayEditWorkspace.test.tsx 断言 tailwind.css 的媒体查询块）。
+# Windows 上 core.autocrlf=true 会把工作区文件 checkout 成 CRLF，源码本身没变，
+# 测试却会误报失败——把行尾固定成 LF 可以根除这类假失败。
+* text=auto eol=lf
