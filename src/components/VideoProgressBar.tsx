@@ -1,27 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play, Repeat, X } from "lucide-react";
+import { Button } from "./ui";
 import type {
   VideoDanmakuControl,
   VideoDanmakuProgress,
   VideoDanmakuSnapshot,
 } from "../types/videoDanmaku";
+import { formatTime, parseTimeInput } from "./videoTimeInput";
+import { useVideoSeekDrag } from "../hooks/useVideoSeekDrag";
 
 const RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-
-/** 后端进度追上本地拖动值之前，先用本地值渲染，避免 thumb 在 pointerup 后弹回旧位置。 */
-const PENDING_SETTLE_MS = 1_200;
-const PENDING_TIMEOUT_MS = 1_500;
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const minuteText =
-    hours > 0 ? String(minutes).padStart(2, "0") : String(minutes);
-  const secondText = String(seconds).padStart(2, "0");
-  return (hours > 0 ? hours + ":" : "") + minuteText + ":" + secondText;
-}
 
 type VideoProgressBarProps = {
   snapshot: VideoDanmakuSnapshot;
@@ -30,17 +18,22 @@ type VideoProgressBarProps = {
   onClose: () => void | Promise<void>;
 };
 
-const controlButtonClass =
-  "grid size-7 shrink-0 place-items-center rounded-full border border-[var(--drift-ui-line)] text-[var(--drift-ui-ink)] transition hover:bg-[var(--drift-ui-hover)] disabled:opacity-40";
+// 与编辑工作台底栏（OverlayControlDock）完全一致，两栏看起来是同一套控件。
+const DOCK_BUTTON_CLASS =
+  "shrink-0 !border-[var(--drift-ui-border)] !bg-[var(--drift-ui-overlay-control)] !text-[var(--drift-ui-ink-soft)] !shadow-none hover:!border-[var(--drift-ui-border-strong)] hover:!bg-[var(--drift-ui-overlay-control-hover)] hover:!text-[var(--drift-ui-ink)] focus-visible:!ring-[color-mix(in_srgb,var(--drift-ui-signal)_25%,transparent)]";
+
+const DOCK_BUTTON_ACTIVE_CLASS =
+  "!border-[var(--drift-ui-signal)] !bg-[var(--drift-ui-overlay-selected)] !text-[var(--drift-ui-signal-text)]";
 
 const selectClass =
-  "h-7 shrink-0 rounded-md border border-[var(--drift-ui-line)] bg-[var(--drift-ui-surface)] px-1.5 text-[11px] text-[var(--drift-ui-ink)] outline-none";
+  "h-7 shrink-0 rounded-md border border-[var(--drift-ui-border)] bg-[var(--drift-ui-overlay-control)] px-1.5 text-[11px] text-[var(--drift-ui-ink-soft)] outline-none";
 
 /**
  * 视频弹幕进度条，只在编辑模式显示。
  * 弹幕层平时整窗鼠标穿透，编辑模式下整窗可点，所以放在这里既能操作又不会挡住后面的直播页。
  * 位置：编辑工作台底栏（.overlay-control-dock，bottom 8px + 高 32px）正上方单独一栏，
- * 通栏（左右各 12px）、高 36px；有进度条时 Mock 面板整体上移到它上面（.overlay-mock-panel.is-raised）。
+ * 通栏（左右各 12px）、高 32px，边框 / 圆角 9px / 玻璃背景 / 18px 模糊 / 阴影全部对齐底栏；
+ * 有进度条时 Mock 面板整体上移到它上面（.overlay-mock-panel.is-raised）。
  */
 export function VideoProgressBar({
   onClose,
@@ -48,87 +41,74 @@ export function VideoProgressBar({
   progress,
   snapshot,
 }: VideoProgressBarProps) {
-  const [dragging, setDragging] = useState(false);
-  const [dragMs, setDragMs] = useState(0);
-  const [pendingSeekMs, setPendingSeekMs] = useState<number | null>(null);
-  // pointerup 与最后一次 change 可能同批触发，用 ref 保证提交的是最新拖动值。
-  const dragMsRef = useRef(0);
+  const [editingTime, setEditingTime] = useState(false);
+  const [timeDraft, setTimeDraft] = useState("");
+  // setEditingTime 是异步的，用 ref 保证回车与随后可能触发的 blur 只提交一次。
+  const editingTimeRef = useRef(false);
+  const timeInputRef = useRef<HTMLInputElement | null>(null);
 
   const sameSession = progress?.sessionId === snapshot.sessionId;
   const durationMs = snapshot.durationMs || 0;
   const liveMs = sameSession ? progress.positionMs : snapshot.positionMs;
   const playing = sameSession ? progress.playing : snapshot.playing;
   const loading = sameSession ? progress.loading : snapshot.loading;
-  const positionMs = dragging
-    ? dragMs
-    : (pendingSeekMs ?? Math.min(liveMs, durationMs || liveMs));
+
+  const handleSeek = useCallback(
+    (next: number) => {
+      void onControl({ action: "seek", positionMs: next });
+    },
+    [onControl],
+  );
+  // 拖动 / 提交 / 防回弹的时序都在这个 hook 里，主界面那条共用同一份逻辑。
+  const { beginDrag, commitSeek, finishDrag, handleDragChange, positionMs } =
+    useVideoSeekDrag({ durationMs, liveMs, onSeek: handleSeek });
 
   const pageLabel =
     snapshot.pageTitle && snapshot.pageTitle !== snapshot.title
       ? snapshot.pageTitle
       : "";
 
-  const commitSeek = useCallback(
-    (next: number) => {
-      setDragging(false);
-      setPendingSeekMs(next);
-      void onControl({ action: "seek", positionMs: next });
-    },
-    [onControl],
-  );
-
-  function beginDrag() {
-    dragMsRef.current = positionMs;
-    setDragMs(positionMs);
-    setPendingSeekMs(null);
-    setDragging(true);
+  function beginTimeEdit() {
+    editingTimeRef.current = true;
+    setTimeDraft(formatTime(positionMs));
+    setEditingTime(true);
   }
 
-  function finishDrag() {
-    if (!dragging) {
+  /** 回车 / 点到别处提交，Esc 取消；解析失败按约定退回原值。 */
+  function endTimeEdit(commit: boolean) {
+    if (!editingTimeRef.current) {
       return;
     }
-    commitSeek(dragMsRef.current);
+    editingTimeRef.current = false;
+    setEditingTime(false);
+    if (!commit) {
+      return;
+    }
+    const parsed = parseTimeInput(timeDraft);
+    if (parsed === null) {
+      return;
+    }
+    // 超过总时长按约定跳到片尾。
+    commitSeek(durationMs > 0 ? Math.min(parsed, durationMs) : parsed);
   }
 
-  // 指针在进度条外松开时 input 收不到 pointerup，这里兜一层，避免拖动状态卡住。
+  // 进入编辑态后聚焦并全选，直接敲数字就能覆盖原值。
   useEffect(() => {
-    if (!dragging) {
+    if (!editingTime) {
       return;
     }
-    function handlePointerEnd() {
-      commitSeek(dragMsRef.current);
-    }
-    window.addEventListener("pointerup", handlePointerEnd);
-    window.addEventListener("pointercancel", handlePointerEnd);
-    return () => {
-      window.removeEventListener("pointerup", handlePointerEnd);
-      window.removeEventListener("pointercancel", handlePointerEnd);
-    };
-  }, [dragging, commitSeek]);
-
-  // 后端进度追上本地值（或超时）后放弃本地拖动值，之后完全跟后端走。
-  useEffect(() => {
-    if (pendingSeekMs === null) {
+    const input = timeInputRef.current;
+    if (!input) {
       return;
     }
-    if (Math.abs(liveMs - pendingSeekMs) < PENDING_SETTLE_MS) {
-      setPendingSeekMs(null);
-      return;
-    }
-    const timer = window.setTimeout(
-      () => setPendingSeekMs(null),
-      PENDING_TIMEOUT_MS,
-    );
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [liveMs, pendingSeekMs]);
+    input.focus();
+    input.select();
+  }, [editingTime]);
 
   return (
     <section
       aria-label="视频弹幕进度"
-      className="video-progress-bar pointer-events-auto absolute inset-x-3 bottom-[2.875rem] z-20 flex h-9 items-center gap-2 rounded-[10px] border border-[var(--drift-ui-line)] bg-[var(--drift-ui-raised)] px-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.35)]"
+      className="drift-theme-transition video-progress-bar pointer-events-auto absolute inset-x-3 bottom-[2.875rem] z-20 box-border flex h-8 min-w-0 select-none items-center gap-1.5 overflow-hidden rounded-[9px] border border-[var(--drift-ui-border)] bg-[var(--drift-ui-overlay-glass)] px-2 text-[var(--drift-ui-ink)] shadow-[0_10px_30px_var(--drift-ui-overlay-dock-shadow)] backdrop-blur-[18px]"
       title={
         snapshot.title +
         (pageLabel ? " · " + pageLabel : "") +
@@ -137,41 +117,58 @@ export function VideoProgressBar({
         "）"
       }
     >
-      <button
+      <Button
         aria-label={playing ? "暂停" : "播放"}
-        className={controlButtonClass}
-        onClick={() =>
-          void onControl({ action: playing ? "pause" : "play" })
-        }
-        type="button"
+        className={DOCK_BUTTON_CLASS}
+        onClick={() => void onControl({ action: playing ? "pause" : "play" })}
+        size="sm"
+        variant="ghost"
       >
         {playing ? (
           <Pause aria-hidden="true" size={13} />
         ) : (
           <Play aria-hidden="true" size={13} />
         )}
-      </button>
+      </Button>
 
-      <span className="drift-data-text shrink-0 text-[11px] tabular-nums text-[var(--drift-ui-ink)]">
-        {formatTime(positionMs)}
-      </span>
+      {editingTime ? (
+        <input
+          aria-label="跳转到时间"
+          className="drift-data-text h-4 w-[3.25rem] shrink-0 bg-transparent p-0 text-center text-[11px] tabular-nums text-[var(--drift-ui-ink-soft)] outline-none"
+          onBlur={() => endTimeEdit(true)}
+          onChange={(event) => setTimeDraft(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              endTimeEdit(true);
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              endTimeEdit(false);
+            }
+          }}
+          ref={timeInputRef}
+          value={timeDraft}
+        />
+      ) : (
+        <button
+          aria-label="修改播放时间"
+          className="drift-data-text shrink-0 cursor-pointer border-0 bg-transparent p-0 text-[11px] tabular-nums text-[var(--drift-ui-ink-soft)] outline-none"
+          onClick={beginTimeEdit}
+          title="点击修改播放时间"
+          type="button"
+        >
+          {formatTime(positionMs)}
+        </button>
+      )}
 
       <input
         aria-label="视频进度"
         className="h-1.5 min-w-0 flex-1 cursor-pointer"
         max={durationMs || 1}
         min={0}
-        onChange={(event) => {
-          const next = Number(event.currentTarget.value);
-          if (dragging) {
-            dragMsRef.current = next;
-            setDragMs(next);
-          } else {
-            commitSeek(next);
-          }
-        }}
+        onChange={(event) => handleDragChange(Number(event.currentTarget.value))}
         onPointerCancel={finishDrag}
-        onPointerDown={beginDrag}
+        onPointerDown={() => beginDrag(positionMs)}
         onPointerUp={finishDrag}
         style={{ accentColor: "#fb7299" }}
         type="range"
@@ -216,24 +213,23 @@ export function VideoProgressBar({
         ))}
       </select>
 
-      <button
+      <Button
         aria-label={snapshot.looping ? "关闭循环播放" : "循环播放"}
         aria-pressed={snapshot.looping}
         className={[
-          controlButtonClass,
-          snapshot.looping
-            ? "border-[#fb7299] text-[#fb7299]"
-            : "",
+          DOCK_BUTTON_CLASS,
+          snapshot.looping ? DOCK_BUTTON_ACTIVE_CLASS : "",
         ]
           .filter(Boolean)
           .join(" ")}
         onClick={() =>
           void onControl({ action: "setLooping", looping: !snapshot.looping })
         }
-        type="button"
+        size="sm"
+        variant="ghost"
       >
         <Repeat aria-hidden="true" size={13} />
-      </button>
+      </Button>
 
       {snapshot.pages.length > 1 ? (
         <select
@@ -255,14 +251,15 @@ export function VideoProgressBar({
         </select>
       ) : null}
 
-      <button
+      <Button
         aria-label="关闭视频弹幕"
-        className={controlButtonClass}
+        className={DOCK_BUTTON_CLASS}
         onClick={() => void onClose()}
-        type="button"
+        size="sm"
+        variant="ghost"
       >
         <X aria-hidden="true" size={13} />
-      </button>
+      </Button>
     </section>
   );
 }

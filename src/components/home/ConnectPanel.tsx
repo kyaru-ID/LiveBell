@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HelpCircle } from "lucide-react";
 import { useStreamerSearch } from "../../hooks/useStreamerSearch";
+import { useVideoDanmaku } from "../../hooks/useVideoDanmaku";
 import { STREAMER_NOT_FOUND_HINT, type StreamerCandidate } from "../../types/streamer";
 import { type RoomSessionSnapshot } from "../../types/roomSession";
 import { roomIdFromInput } from "../../utils/roomId";
@@ -10,6 +11,7 @@ import { StatusBanner } from "../control/settings-ui";
 import { sessionStatusText } from "../control/RoomSessionList";
 import { RoomAvatar } from "../control/SavedRoomList";
 import { StreamerCandidateList } from "../StreamerCandidateList";
+import { HomeVideoControl } from "./HomeVideoControl";
 
 // 敲字后延迟这么久才查询房间状态，避免每敲一字打一次接口（对齐 C# 的 450ms 防抖）。
 const STATUS_DEBOUNCE_MS = 450;
@@ -49,6 +51,13 @@ export function ConnectPanel({
   const [videoInput, setVideoInput] = useState("");
   const [videoError, setVideoError] = useState<string | null>(null);
   const [isOpeningVideo, setIsOpeningVideo] = useState(false);
+  // 主界面也要显示视频进度：连上以后这一块才出现，断开就消失。
+  const {
+    close: closeVideoDanmaku,
+    control: controlVideoDanmaku,
+    progress: videoProgress,
+    snapshot: videoSnapshot,
+  } = useVideoDanmaku(true);
   const roomId = roomIdFromInput(input);
   const { candidates, clear, isSearching, search, searchError } =
     useStreamerSearch();
@@ -293,6 +302,14 @@ export function ConnectPanel({
               description={videoError}
               title="打开视频弹幕失败"
               tone="danger"
+            />
+          ) : null}
+          {videoSnapshot ? (
+            <HomeVideoControl
+              onClose={closeVideoDanmaku}
+              onControl={controlVideoDanmaku}
+              progress={videoProgress}
+              snapshot={videoSnapshot}
             />
           ) : null}
         </div>

@@ -8,7 +8,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use reqwest::header::{ACCEPT, REFERER, USER_AGENT};
+use reqwest::header::{ACCEPT, COOKIE, REFERER, USER_AGENT};
 use serde::Deserialize;
 
 use super::proto::{parse_seg, DanmakuElem};
@@ -348,12 +348,20 @@ fn is_protobuf(bytes: &[u8]) -> bool {
     !bytes.is_empty() && bytes[0] != b'{'
 }
 
-async fn request_seg(url: &str, params: &[(String, String)]) -> Result<Vec<u8>, String> {
-    let response = reqwest::Client::new()
+async fn request_seg(
+    url: &str,
+    params: &[(String, String)],
+    cookie: &str,
+) -> Result<Vec<u8>, String> {
+    let mut request = reqwest::Client::new()
         .get(url)
         .header(ACCEPT, "*/*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
-        .header(REFERER, VIDEO_REFERER)
+        .header(REFERER, VIDEO_REFERER);
+    if !cookie.is_empty() {
+        request = request.header(COOKIE, cookie);
+    }
+    let response = request
         .query(params)
         .send()
         .await
@@ -378,8 +386,9 @@ async fn signed_seg_params(
     aid: u64,
     cid: u64,
     segment_index: u64,
+    cookie: &str,
 ) -> Result<Vec<(String, String)>, String> {
-    let mixin = fetch_wbi_mixin_key("").await?;
+    let mixin = fetch_wbi_mixin_key(cookie).await?;
     let mut params = vec![
         ("oid".to_string(), cid.to_string()),
         ("pid".to_string(), aid.to_string()),
@@ -404,11 +413,16 @@ async fn signed_seg_params(
     Ok(params)
 }
 
-/// 拉取一段弹幕。先用匿名直连，失败再走 WBI 签名。
+/// 拉取一段弹幕。先用直连，失败再走 WBI 签名。
+///
+/// `cookie` 是登录态，**必须带**，否则 B 站只回抽样弹幕。实测 BV19rHG6EEfK
+/// （3930 条弹幕）：匿名每段只回 67/70/72… 共 578 条；带登录 Cookie 后每段
+/// 420/441/456… 共 3930 条，与 list.so 全量一致。
 pub(crate) async fn fetch_segment(
     aid: u64,
     cid: u64,
     segment_index: u64,
+    cookie: &str,
 ) -> Result<Vec<DanmakuElem>, String> {
     let direct_params = vec![
         ("type".to_string(), "1".to_string()),
@@ -417,14 +431,14 @@ pub(crate) async fn fetch_segment(
         ("segment_index".to_string(), segment_index.to_string()),
     ];
 
-    let direct_error = match request_seg(SEG_URL, &direct_params).await {
+    let direct_error = match request_seg(SEG_URL, &direct_params, cookie).await {
         Ok(bytes) if is_protobuf(&bytes) => return parse_seg(&bytes),
         Ok(bytes) => format!("直连返回非弹幕数据：{}", response_preview(&bytes)),
         Err(error) => error,
     };
 
-    let signed = signed_seg_params(aid, cid, segment_index).await?;
-    let bytes = request_seg(SEG_WBI_URL, &signed).await?;
+    let signed = signed_seg_params(aid, cid, segment_index, cookie).await?;
+    let bytes = request_seg(SEG_WBI_URL, &signed, cookie).await?;
     if !is_protobuf(&bytes) {
         return Err(format!(
             "视频弹幕分段返回异常：{direct_error}；WBI 重试：{}",

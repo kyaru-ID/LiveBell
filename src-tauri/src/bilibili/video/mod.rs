@@ -28,6 +28,8 @@ const TICK_MS: u64 = 100;
 const PROGRESS_EVERY_TICKS: u64 = 2;
 /// 单批最多发多少条，避免拖动进度条后一次灌爆前端。
 const MAX_BATCH_MESSAGES: usize = 300;
+/// 单次 tick 最多按多少毫秒推进：系统休眠恢复 / 界面卡顿时不让位置一下跳太远。
+const MAX_TICK_ELAPSED_MS: f64 = 2_000.0;
 /// 距离段尾这么近就预取下一段。
 const PREFETCH_AHEAD_MS: u64 = 60_000;
 /// 拖动进度条后，把目标位置之前这么长一段的弹幕铺回屏幕上。
@@ -38,6 +40,16 @@ const EVENT_PROGRESS: &str = "video-danmaku-progress";
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 拉弹幕分段要带登录态：B 站对匿名请求只回抽样弹幕（实测约 1/6.3）。
+/// 没登录就退回空串，请求照发，只是拿到的条数会少。
+fn current_cookie() -> String {
+    crate::bilibili::session::load_cookie_bundle()
+        .ok()
+        .flatten()
+        .map(|bundle| bundle.cookie_header())
+        .unwrap_or_default()
 }
 
 #[derive(Default)]
@@ -67,6 +79,8 @@ struct VideoSession {
     loading: HashSet<u64>,
     failed: HashMap<u64, String>,
     error: Option<String>,
+    /// 打开会话时的登录 Cookie：拉分段必须带，否则 B 站只返回抽样弹幕。
+    cookie: String,
 }
 
 impl VideoSession {
@@ -231,6 +245,13 @@ fn to_live_message(cid: u64, elem: &DanmakuElem) -> LiveMessage {
 fn store_segment(session: &mut VideoSession, index: u64, elems: Vec<DanmakuElem>) {
     let mut items: Vec<DanmakuElem> = elems.into_iter().filter(DanmakuElem::is_renderable).collect();
     items.sort_by_key(|elem| elem.progress_ms);
+    tracing::info!(
+        target: "livebell::video",
+        cid = session.cid,
+        index,
+        count = items.len(),
+        "video danmaku segment stored"
+    );
     session.segments.insert(index, items);
 }
 
@@ -241,9 +262,10 @@ fn spawn_segment_fetch(
     aid: u64,
     cid: u64,
     index: u64,
+    cookie: String,
 ) {
     tauri::async_runtime::spawn(async move {
-        let result = fetch_segment(aid, cid, index).await;
+        let result = fetch_segment(aid, cid, index, &cookie).await;
         let mut guard = lock(&inner);
         let session = match guard.as_mut() {
             Some(session) => session,
@@ -278,10 +300,23 @@ fn spawn_segment_fetch(
     });
 }
 
+/// 按真实经过的时间换算这一 tick 该推进多少毫秒。
+/// 不能直接用 TICK_MS：sleep 本身有开销、tick 里还有活儿要干，固定步进会越跑越慢
+/// （实测 100ms 的 tick 实际要 ~104ms，20-30 秒就比视频慢 1 秒）。
+fn advance_step(elapsed_ms: f64, rate: f64) -> u64 {
+    let clamped = elapsed_ms.clamp(0.0, MAX_TICK_ELAPSED_MS);
+    (clamped * rate).round() as u64
+}
+
 /// 播放时钟：推进位置、取待发弹幕、触发分段加载、推进度。
-async fn tick(app: &AppHandle, inner: &Arc<Mutex<Option<VideoSession>>>, ticks: u64) {
+async fn tick(
+    app: &AppHandle,
+    inner: &Arc<Mutex<Option<VideoSession>>>,
+    ticks: u64,
+    elapsed_ms: f64,
+) {
     let emit_progress = ticks % PROGRESS_EVERY_TICKS == 0;
-    let mut fetch_jobs: Vec<(String, u64, u64, u64)> = Vec::new();
+    let mut fetch_jobs: Vec<(String, u64, u64, u64, String)> = Vec::new();
     let mut batch: Option<DanmakuRoomBatch> = None;
     let mut progress: Option<VideoProgressEvent> = None;
 
@@ -296,7 +331,7 @@ async fn tick(app: &AppHandle, inner: &Arc<Mutex<Option<VideoSession>>>, ticks: 
             let current = session.segment_of(session.position_ms);
             // 当前段没就绪就先不推进，避免弹幕被跳过。
             if session.segments.contains_key(&current) {
-                let step = ((TICK_MS as f64) * session.rate).round() as u64;
+                let step = advance_step(elapsed_ms, session.rate);
                 session.position_ms = (session.position_ms + step).min(session.duration_ms);
                 if session.position_ms >= session.duration_ms {
                     if session.looping {
@@ -333,6 +368,7 @@ async fn tick(app: &AppHandle, inner: &Arc<Mutex<Option<VideoSession>>>, ticks: 
                 session.aid,
                 session.cid,
                 index,
+                session.cookie.clone(),
             ));
         }
 
@@ -386,6 +422,7 @@ async fn tick(app: &AppHandle, inner: &Arc<Mutex<Option<VideoSession>>>, ticks: 
                                 session.aid,
                                 session.cid,
                                 index,
+                                session.cookie.clone(),
                             ));
                         }
                     }
@@ -432,8 +469,8 @@ async fn tick(app: &AppHandle, inner: &Arc<Mutex<Option<VideoSession>>>, ticks: 
         }
     }
 
-    for (session_id, aid, cid, index) in fetch_jobs {
-        spawn_segment_fetch(app.clone(), inner.clone(), session_id, aid, cid, index);
+    for (session_id, aid, cid, index, cookie) in fetch_jobs {
+        spawn_segment_fetch(app.clone(), inner.clone(), session_id, aid, cid, index, cookie);
     }
     if let Some(batch) = batch {
         let has_messages = !batch.messages.is_empty();
@@ -460,10 +497,15 @@ pub(crate) fn setup(app: &AppHandle) {
     let ticker_inner = inner.clone();
     tauri::async_runtime::spawn(async move {
         let mut ticks: u64 = 0;
+        // 用真实经过时间推进，别用「睡多久就走多久」，否则每轮的开销会累积成越来越慢。
+        let mut last = tokio::time::Instant::now();
         loop {
             tokio::time::sleep(Duration::from_millis(TICK_MS)).await;
+            let now = tokio::time::Instant::now();
+            let elapsed_ms = now.duration_since(last).as_secs_f64() * 1000.0;
+            last = now;
             ticks = ticks.wrapping_add(1);
-            tick(&handle, &ticker_inner, ticks).await;
+            tick(&handle, &ticker_inner, ticks, elapsed_ms).await;
         }
     });
 }
@@ -508,10 +550,12 @@ pub(crate) async fn open_video_danmaku(
         loading: HashSet::new(),
         failed: HashMap::new(),
         error: None,
+        cookie: current_cookie(),
     };
 
     // 先同步拉第一段：打开就能看到弹幕，比“先出进度条再加载”体验好。
-    match fetch_segment(session.aid, cid, 1).await {
+    let cookie = session.cookie.clone();
+    match fetch_segment(session.aid, cid, 1, &cookie).await {
         Ok(elems) => store_segment(&mut session, 1, elems),
         Err(error) => session.error = Some(error),
     }
@@ -628,14 +672,18 @@ pub(crate) async fn video_danmaku_control(
 
     if let Some(cid) = select_page {
         // 切P后先把第一段拉回来，再推状态。
-        let (session_id, aid) = {
+        let (session_id, aid, cookie) = {
             let guard = lock(&inner);
             match guard.as_ref() {
-                Some(session) => (session.session_id.clone(), session.aid),
+                Some(session) => (
+                    session.session_id.clone(),
+                    session.aid,
+                    session.cookie.clone(),
+                ),
                 None => return Err("当前没有打开的视频弹幕".to_string()),
             }
         };
-        let result = fetch_segment(aid, cid, 1).await;
+        let result = fetch_segment(aid, cid, 1, &cookie).await;
         let mut guard = lock(&inner);
         if let Some(session) = guard.as_mut() {
             if session.session_id == session_id {
@@ -660,7 +708,19 @@ pub(crate) async fn video_danmaku_control(
 
 #[cfg(test)]
 mod tests {
-    use super::VideoControl;
+    use super::{advance_step, VideoControl};
+
+    #[test]
+    fn advance_step_follows_real_elapsed_time() {
+        // 修复「时间越跑越慢」：步进必须按真实经过时间算，不能固定按 TICK_MS。
+        assert_eq!(advance_step(100.0, 1.0), 100);
+        assert_eq!(advance_step(104.5, 1.0), 105);
+        assert_eq!(advance_step(100.0, 2.0), 200);
+        assert_eq!(advance_step(100.0, 0.5), 50);
+        // 休眠恢复 / 卡顿时最多按 2 秒补偿，不会一下跳过一大段。
+        assert_eq!(advance_step(60_000.0, 1.0), 2_000);
+        assert_eq!(advance_step(-5.0, 1.0), 0);
+    }
 
     #[test]
     fn control_deserializes_frontend_payloads() {
