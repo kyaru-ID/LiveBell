@@ -626,6 +626,7 @@ fn build_danmaku_room_batch(
         fan_medal_name: fan_medal_name.map(str::to_owned),
         active_source_count,
         messages,
+        source_kind: None,
     })
 }
 

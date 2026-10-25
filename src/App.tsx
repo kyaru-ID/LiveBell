@@ -19,6 +19,7 @@ import {
   buildOnlineBadges,
   type OnlineCountEntry,
 } from "./components/OnlineCountBadges";
+import { VideoProgressBar } from "./components/VideoProgressBar";
 import { VerticalChatOverlay } from "./components/VerticalChatOverlay";
 import {
   OverlayEditWorkspace,
@@ -29,6 +30,7 @@ import { SendDanmakuWindow } from "./components/SendDanmakuWindow";
 import { TooltipProvider } from "./components/ui";
 import { useDanmakuRuntime } from "./hooks/useDanmakuRuntime";
 import { useRoomSessions } from "./hooks/useRoomSessions";
+import { useVideoDanmaku } from "./hooks/useVideoDanmaku";
 import {
   DEFAULT_APP_CONFIG,
   defaultShortcutLabel,
@@ -118,6 +120,17 @@ function App() {
     enabled: windowLabel === "main",
   });
   const {
+    close: closeVideoDanmaku,
+    control: controlVideoDanmaku,
+    progress: videoProgress,
+    seekToken: videoSeekToken,
+    snapshot: videoSnapshot,
+  } = useVideoDanmaku(windowLabel === "main");
+  // 视频暂停时冻结屏幕上的弹幕；直播没有暂停概念，这里只对视频会话生效。
+  const videoPaused =
+    videoSnapshot !== null &&
+    !(videoProgress?.playing ?? videoSnapshot.playing);
+  const {
     enqueueLiveBatch,
     handleMockRateChange,
     historySnapshot,
@@ -142,6 +155,11 @@ function App() {
     config,
     roomSessions,
     roomSessionsReady,
+    // 纯视频弹幕没有直播间会话；不告诉运行时会因为没有“直播源”而整条渲染循环不启动。
+    videoActive: videoSnapshot !== null,
+    videoPaused,
+    videoPositionMs: videoProgress?.positionMs ?? videoSnapshot?.positionMs ?? 0,
+    videoSeekToken,
     trackCount,
     windowLabel,
   });
@@ -495,11 +513,20 @@ function App() {
         <DanmakuOverlay
           items={items}
           onItemDone={removeDanmakuItem}
+          paused={videoPaused}
           showEmotes={config.messageDisplay.showEmotes}
           showUsername={config.appearance.showUsername}
           trackCount={trackCount}
         />
       )}
+      {videoSnapshot && isEditMode ? (
+        <VideoProgressBar
+          onClose={() => void closeVideoDanmaku()}
+          onControl={controlVideoDanmaku}
+          progress={videoProgress}
+          snapshot={videoSnapshot}
+        />
+      ) : null}
       {isEditMode ? (
         <OverlayEditWorkspace
           historyMessages={historySnapshot}
@@ -524,6 +551,7 @@ function App() {
           onShowMock={showMockWorkspace}
           onToggleHistory={toggleHistoryDrawer}
           onToggleStats={toggleStatsDrawer}
+          raiseMock={videoSnapshot !== null}
           roomSources={roomSources}
           shortcut={shortcut}
           showHistory={showHistory}

@@ -450,6 +450,11 @@ html[data-drift-theme] {
   -webkit-backdrop-filter: blur(18px);
 }
 
+/* 视频弹幕进度条占了一栏时，Mock 面板整体上移让位（编辑底栏 8+32、进度条 46+36、间隔 8）。 */
+.drift-overlay-workspace .overlay-mock-panel.is-raised {
+  bottom: 90px;
+}
+
 .drift-overlay-workspace .overlay-drawer {
   pointer-events: auto;
   position: absolute;

@@ -29,6 +29,8 @@ export type DanmakuRoomBatch = {
   fanMedalName?: string;
   activeSourceCount: number;
   messages: LiveMessage[];
+  /** 后端标记的来源：缺省是直播间弹幕，video 表示 B 站点播视频的弹幕。 */
+  sourceKind?: "video" | string;
 };
 
 export type RoomSourceOption = {

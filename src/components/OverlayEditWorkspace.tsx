@@ -37,6 +37,8 @@ type OverlayEditWorkspaceProps = {
   onShowMock: () => void;
   onToggleHistory: () => void;
   onToggleStats: () => void;
+  /** 有视频弹幕进度条时，Mock 面板上移一栏。 */
+  raiseMock?: boolean;
   roomSources: RoomSourceOption[];
   shortcut: string;
   showHistory: boolean;
@@ -102,6 +104,7 @@ export function OverlayEditWorkspace(props: OverlayEditWorkspaceProps) {
           <MockDanmakuPanel
             {...props.mock}
             className={drawerOpen ? "overlay-covered-on-narrow" : undefined}
+            raised={props.raiseMock}
           />
         ) : null}
 

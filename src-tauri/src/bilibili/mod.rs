@@ -16,4 +16,5 @@ pub(crate) mod send;
 pub(crate) mod session;
 pub(crate) mod streamer_search;
 pub(crate) mod types;
+pub(crate) mod video;
 pub(crate) mod ws;

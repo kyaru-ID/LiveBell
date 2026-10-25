@@ -7,6 +7,8 @@ type DanmakuOverlayProps = {
   showEmotes: boolean;
   trackCount: number;
   showUsername: boolean;
+  /** 视频暂停时冻结所有滚动动画。 */
+  paused?: boolean;
 };
 
 export function DanmakuOverlay({
@@ -15,10 +17,12 @@ export function DanmakuOverlay({
   showEmotes,
   showUsername,
   trackCount,
+  paused = false,
 }: DanmakuOverlayProps) {
   return (
     <section
-      className="pointer-events-none absolute inset-0"
+      className="danmaku-layer pointer-events-none absolute inset-0"
+      data-paused={paused ? "true" : "false"}
       aria-label="LiveBell弹幕预览"
     >
       {items.map((item) => (

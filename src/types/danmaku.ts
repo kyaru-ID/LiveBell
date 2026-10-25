@@ -39,6 +39,8 @@ export type DanmakuItem = DisplayMessageItem & {
   duration: number;
   delay: number;
   createdAt: number;
+  /** 视频回填弹幕的偏移量（ms）：拖动进度条后清屏时按它把这些弹幕留下来。 */
+  videoOffsetMs?: number;
 };
 
 export type VerticalChatItem = DisplayMessageItem & {
@@ -79,6 +81,12 @@ export type QueuedLiveMessage = LiveMessage & {
   sourceRoomId?: number;
   sourceAnchorName?: string;
   sourceFanMedalName?: string;
+  /**
+   * 视频弹幕专用：这条消息比当前播放位置"晚"了多少毫秒。
+   * 拖动进度条后后端会回填目标位置之前的弹幕，靠它算出负的动画延迟，
+   * 让这些弹幕直接出现在屏幕中段，而不是从右边重新滚一遍。
+   */
+  videoOffsetMs?: number;
 };
 
 export type SendDanmakuStatus = {

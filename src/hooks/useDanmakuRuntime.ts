@@ -56,6 +56,13 @@ import { useVerticalChatRuntime } from "./useVerticalChatRuntime";
 const HISTORY_MAX = 300;
 const STATS_REFRESH_INTERVAL_MS = 1000;
 const ROOM_SOURCE_COLOR_COUNT = 5;
+/**
+ * 视频弹幕：消息时间戳比当前播放位置早超过这个量，就认定是拖动后的回填弹幕，
+ * 用负的动画延迟让它直接出现在屏幕中段。正常播放时两者相差不到一个 tick。
+ */
+const VIDEO_BACKFILL_THRESHOLD_MS = 300;
+/** 回填弹幕已经在滚动中，只需要一个很短的轨道冷却，别把它们挤到下一轮。 */
+const VIDEO_BACKFILL_LANE_COOLDOWN_MS = 200;
 
 type SourcedLiveMessage = LiveMessage &
   Pick<
@@ -136,6 +143,14 @@ type UseDanmakuRuntimeParams = {
   config: AppConfig;
   roomSessions: RoomSessionSnapshot[];
   roomSessionsReady?: boolean;
+  /** 视频弹幕会话进行中：它没有直播间会话，但同样需要跑渲染循环。 */
+  videoActive?: boolean;
+  /** 视频暂停中：不再从队列取新弹幕（屏幕上的弹幕由 CSS 动画冻结）。 */
+  videoPaused?: boolean;
+  /** 视频当前播放位置（ms），用来判断一条批次里的弹幕是不是 seek 回填的。 */
+  videoPositionMs?: number;
+  /** 每次拖动 / 跳转递增，用来清掉旧时间点还留在屏幕上的弹幕。 */
+  videoSeekToken?: number;
   trackCount: number;
   windowLabel: string;
 };
@@ -169,6 +184,10 @@ export function useDanmakuRuntime({
   config,
   roomSessions,
   roomSessionsReady = true,
+  videoActive = false,
+  videoPaused = false,
+  videoPositionMs = 0,
+  videoSeekToken = 0,
   trackCount,
   windowLabel,
 }: UseDanmakuRuntimeParams): UseDanmakuRuntimeResult {
@@ -187,6 +206,9 @@ export function useDanmakuRuntime({
   const roomSessionsReadyRef = useRef(roomSessionsReady);
   const hadNetworkActiveSessionRef = useRef(false);
   const bufferedBatchesRef = useRef<DanmakuRoomBatch[]>([]);
+  // 播放位置每 200ms 变一次，走 ref 传给批次处理，避免刷新循环的 effect 反复重建。
+  const videoPositionRef = useRef(videoPositionMs);
+  videoPositionRef.current = videoPositionMs;
   const pausedRulesBySessionRef = useRef(new Map<string, Set<string>>());
   const roomSourcesRef = useRef(new Map<number, RoomSourceOption>());
   const displaySequenceRef = useRef(0);
@@ -217,10 +239,13 @@ export function useDanmakuRuntime({
     () => calcDensityLimits(config.appearance.density, trackCount),
     [config.appearance.density, trackCount],
   );
-  const hasLiveSource = roomSessions.some(
-    (session) =>
-      session.status === "connected" || session.status === "reconnecting",
-  );
+  // 直播会话或视频弹幕会话，任意一个在跑就要继续渲染弹幕。
+  const hasLiveSource =
+    videoActive ||
+    roomSessions.some(
+      (session) =>
+        session.status === "connected" || session.status === "reconnecting",
+    );
   const items = liveItems;
   const messageFlow = config.appearance.messageFlow;
   const verticalRuntime = useVerticalChatRuntime({
@@ -240,6 +265,23 @@ export function useDanmakuRuntime({
     sequenceRef.current = 0;
     liveItemsRef.current = [];
     setLiveItems([]);
+  }
+
+  // 拖动进度条后清掉旧时间点的弹幕，但留着已经带上偏移量的回填弹幕。
+  function clearVideoDisplayForSeek() {
+    const keepBackfill = (message: QueuedLiveMessage) =>
+      (message.videoOffsetMs ?? 0) > 0;
+    pendingMessagesRef.current =
+      pendingMessagesRef.current.filter(keepBackfill);
+    priorityMessagesRef.current =
+      priorityMessagesRef.current.filter(keepBackfill);
+    laneAvailableAtRef.current = [];
+    sequenceRef.current = 0;
+    const keptItems = liveItemsRef.current.filter(
+      (item) => (item.videoOffsetMs ?? 0) > 0,
+    );
+    liveItemsRef.current = keptItems;
+    setLiveItems(keptItems);
   }
 
   function clearLiveMessageState() {
@@ -455,6 +497,36 @@ export function useDanmakuRuntime({
   }
 
   function acceptLiveBatch(batch: DanmakuRoomBatch) {
+    // 视频弹幕没有直播间会话：后端按时间轴推进，用 sourceKind = "video" 标记。
+    // 这里只做 id 去重和来源标注，其余（过滤 / 录制 / 垂直流 / 统计）走同一条管线。
+    if (batch.sourceKind === "video") {
+      // seek 之后后端会立刻回填「目标位置之前 5 秒」的弹幕，这些消息的时间戳
+      // 比当前播放位置早得多；标记成回填后由刷屏循环给负的动画延迟。
+      const currentPosition = videoPositionRef.current;
+      acceptMessages(
+        batch.messages.map((message) => {
+          const offset =
+            typeof message.timestamp === "number"
+              ? currentPosition - message.timestamp
+              : 0;
+          return {
+            ...message,
+            id:
+              batch.sessionId +
+              ":" +
+              message.id +
+              ":" +
+              displaySequenceRef.current++,
+            sourceSessionId: batch.sessionId,
+            sourceAnchorName: batch.anchorName,
+            videoOffsetMs:
+              offset > VIDEO_BACKFILL_THRESHOLD_MS ? offset : undefined,
+          };
+        }),
+      );
+      return;
+    }
+
     const session = sessionsRef.current.get(batch.sessionId);
     if (
       !session ||
@@ -604,10 +676,21 @@ export function useDanmakuRuntime({
     verticalRuntime.clear();
   }, [messageFlow]);
 
+  const lastVideoSeekTokenRef = useRef(videoSeekToken);
+  useEffect(() => {
+    if (lastVideoSeekTokenRef.current === videoSeekToken) {
+      return;
+    }
+    lastVideoSeekTokenRef.current = videoSeekToken;
+    clearVideoDisplayForSeek();
+  }, [videoSeekToken]);
+
   useEffect(() => {
     if (
       windowLabel !== "main" ||
       messageFlow !== "horizontal" ||
+      // 视频暂停时不再往屏幕上铺新弹幕，恢复播放后继续。
+      videoPaused ||
       (!hasLiveSource && !mock.active)
     ) {
       return;
@@ -641,6 +724,8 @@ export function useDanmakuRuntime({
 
       for (const message of pendingMessages) {
         const sequence = sequenceRef.current;
+        const videoOffsetMs = message.videoOffsetMs ?? 0;
+        const isBackfill = videoOffsetMs > 0;
 
         const duration = resolveMessageDuration(
           message,
@@ -648,7 +733,10 @@ export function useDanmakuRuntime({
           sequence,
         );
         const messageNow = Date.now();
-        const track = findAvailableTrack(laneAvailableAtRef.current, messageNow);
+        // 回填弹幕已经滚了一段，按轮转分配轨道，不吃「轨道冷却」那一套。
+        const track = isBackfill
+          ? sequence % trackCount
+          : findAvailableTrack(laneAvailableAtRef.current, messageNow);
         if (track === null) {
           if (
             isProtectedMessage(message) ||
@@ -671,8 +759,9 @@ export function useDanmakuRuntime({
           config.messageDisplay.showEmotes,
           config.appearance.emoteScale,
         );
-        laneAvailableAtRef.current[track] =
-          messageNow + laneCooldownMs(width, duration);
+        laneAvailableAtRef.current[track] = isBackfill
+          ? messageNow + VIDEO_BACKFILL_LANE_COOLDOWN_MS
+          : messageNow + laneCooldownMs(width, duration);
 
         nextItems.push({
           id: `${message.id}-${sequence}`,
@@ -685,7 +774,8 @@ export function useDanmakuRuntime({
           currentRoomFanMedalLevel: message.currentRoomFanMedalLevel,
           track,
           duration,
-          delay: 0,
+          delay: isBackfill ? -videoOffsetMs / 1000 : 0,
+          videoOffsetMs: isBackfill ? videoOffsetMs : undefined,
           createdAt: messageNow,
           followedUser: message.followedUser,
           highlighted: message.highlighted,
@@ -729,6 +819,7 @@ export function useDanmakuRuntime({
     messageFlow,
     hasLiveSource,
     mock.active,
+    videoPaused,
   ]);
 
   useEffect(() => {

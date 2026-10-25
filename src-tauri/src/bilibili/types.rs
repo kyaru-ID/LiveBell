@@ -173,6 +173,10 @@ pub struct DanmakuRoomBatch {
     pub fan_medal_name: Option<String>,
     pub active_source_count: usize,
     pub messages: Vec<LiveMessage>,
+    /// 弹幕来源：缺省 = 直播间弹幕；`video` = B 站视频弹幕（见 bilibili::video）。
+    /// 前端据此跳过「必须是已连接直播间」的校验。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -417,6 +421,7 @@ mod tests {
             fan_medal_name: Some("粉丝牌".into()),
             active_source_count: 2,
             messages: vec![message()],
+            source_kind: None,
         };
 
         let value = serde_json::to_value(batch).expect("json");

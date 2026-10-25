@@ -1060,3 +1060,144 @@ describe("useDanmakuRuntime fan medal pauses", () => {
     expect(warn).toHaveBeenCalledOnce();
   });
 });
+
+describe("useDanmakuRuntime video batches", () => {
+  test("renders video danmaku when there is no live room session", () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() =>
+      useDanmakuRuntime({
+        config: DEFAULT_APP_CONFIG,
+        roomSessions: [],
+        videoActive: true,
+        trackCount: 3,
+        windowLabel: "main",
+      }),
+    );
+
+    act(() => {
+      result.current.enqueueLiveBatch({
+        sessionId: "video:1176840",
+        roomId: 1176840,
+        sourceKind: "video",
+        activeSourceCount: 1,
+        messages: [
+          {
+            id: "1001",
+            kind: "danmaku",
+            user: "midHash01",
+            text: "第一条视频弹幕",
+          },
+        ],
+      });
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(result.current.items.map((item) => item.text)).toEqual([
+      "第一条视频弹幕",
+    ]);
+  });
+
+  test("keeps the timeline stopped until a video is open", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(
+      ({ videoActive }: { videoActive: boolean }) =>
+        useDanmakuRuntime({
+          config: DEFAULT_APP_CONFIG,
+          roomSessions: [],
+          videoActive,
+          trackCount: 3,
+          windowLabel: "main",
+        }),
+      { initialProps: { videoActive: false } },
+    );
+
+    act(() => {
+      result.current.enqueueLiveBatch({
+        sessionId: "video:1176840",
+        roomId: 1176840,
+        sourceKind: "video",
+        activeSourceCount: 1,
+        messages: [{ id: "2001", kind: "danmaku", user: "u", text: "排队中" }],
+      });
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(result.current.items).toHaveLength(0);
+
+    rerender({ videoActive: true });
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(result.current.items.map((item) => item.text)).toEqual(["排队中"]);
+  });
+
+  test("freezes new danmaku while the video is paused", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(
+      ({ videoPaused }: { videoPaused: boolean }) =>
+        useDanmakuRuntime({
+          config: DEFAULT_APP_CONFIG,
+          roomSessions: [],
+          videoActive: true,
+          videoPaused,
+          trackCount: 3,
+          windowLabel: "main",
+        }),
+      { initialProps: { videoPaused: true } },
+    );
+
+    act(() => {
+      result.current.enqueueLiveBatch({
+        sessionId: "video:1176840",
+        roomId: 1176840,
+        sourceKind: "video",
+        activeSourceCount: 1,
+        messages: [{ id: "3001", kind: "danmaku", user: "u", text: "暂停中" }],
+      });
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(result.current.items).toHaveLength(0);
+
+    rerender({ videoPaused: false });
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(result.current.items.map((item) => item.text)).toEqual(["暂停中"]);
+  });
+
+  test("offsets backfilled danmaku so it lands mid-screen", () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() =>
+      useDanmakuRuntime({
+        config: DEFAULT_APP_CONFIG,
+        roomSessions: [],
+        videoActive: true,
+        videoPositionMs: 60_000,
+        trackCount: 3,
+        windowLabel: "main",
+      }),
+    );
+
+    act(() => {
+      result.current.enqueueLiveBatch({
+        sessionId: "video:1176840",
+        roomId: 1176840,
+        sourceKind: "video",
+        activeSourceCount: 1,
+        messages: [
+          {
+            id: "4001",
+            kind: "danmaku",
+            user: "u",
+            text: "回填弹幕",
+            timestamp: 57_000,
+          },
+        ],
+      });
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0].delay).toBeCloseTo(-3);
+    expect(result.current.items[0].videoOffsetMs).toBe(3000);
+  });
+});

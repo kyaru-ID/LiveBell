@@ -98,6 +98,7 @@ pub fn sync_click_through(app: &AppHandle) -> Result<(), String> {
     set_click_through(app, !is_edit_mode)
 }
 
+
 pub fn set_click_through(app: &AppHandle, enabled: bool) -> Result<(), String> {
     let window = app
         .get_webview_window("main")

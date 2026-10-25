@@ -71,6 +71,7 @@ pub fn run() {
         .manage(window_control::EditModeState::default())
         .manage(window_control::StreamerDialogTarget::default())
         .manage(notifications::NotificationHistoryState::default())
+    .manage(bilibili::video::VideoDanmakuState::default())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -102,6 +103,7 @@ pub fn run() {
             live_monitor::setup(app).map_err(|e| format!("live_monitor: {e}"))?;
             window_control::setup(app).map_err(|e| format!("window_control: {e}"))?;
             tray::setup(app).map_err(|e| format!("tray: {e}"))?;
+            bilibili::video::setup(app.handle());
 
             // --background（开机自启）只留托盘与开播监听，不弹主窗口。
             if args.background {
@@ -223,6 +225,10 @@ pub fn run() {
             notifications::notifications_hide_window,
             notifications::notifications_test,
             update_check::get_app_version,
+            bilibili::video::open_video_danmaku,
+            bilibili::video::close_video_danmaku,
+            bilibili::video::get_video_danmaku_state,
+            bilibili::video::video_danmaku_control,
             open_help_window
         ])
         .run(tauri::generate_context!())

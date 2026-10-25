@@ -4,6 +4,8 @@ import { Button } from "./ui";
 type MockDanmakuPanelProps = {
   active: boolean;
   className?: string;
+  /** 视频弹幕进度条占了一栏时，面板整体上移让位。 */
+  raised?: boolean;
   rate: number;
   totalGenerated: number;
   onStart: () => void;
@@ -15,6 +17,7 @@ type MockDanmakuPanelProps = {
 export function MockDanmakuPanel({
   active,
   className,
+  raised = false,
   rate,
   totalGenerated,
   onStart,
@@ -28,6 +31,7 @@ export function MockDanmakuPanel({
       className={classNames(
         "drift-theme-transition overlay-mock-panel pointer-events-auto absolute bottom-14 left-3 z-[2] box-border grid min-w-[220px] select-none gap-2 rounded-drift border border-[var(--drift-ui-border)] bg-[var(--drift-ui-overlay-glass)] px-3 py-2.5 text-[var(--drift-ui-ink)] shadow-[0_12px_32px_var(--drift-ui-overlay-shadow)] backdrop-blur-[20px]",
         className,
+        raised ? "is-raised" : "",
       )}
     >
       <header>

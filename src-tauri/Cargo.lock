@@ -2247,7 +2247,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "livebell"
-version = "2.1.1"
+version = "2.2.0"
 dependencies = [
  "brotli",
  "chrono",

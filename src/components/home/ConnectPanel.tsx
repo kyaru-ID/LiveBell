@@ -46,6 +46,9 @@ export function ConnectPanel({
   const [preview, setPreview] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [videoInput, setVideoInput] = useState("");
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [isOpeningVideo, setIsOpeningVideo] = useState(false);
   const roomId = roomIdFromInput(input);
   const { candidates, clear, isSearching, search, searchError } =
     useStreamerSearch();
@@ -73,6 +76,29 @@ export function ConnectPanel({
       setError(String(connectError));
     } finally {
       setIsConnecting(false);
+    }
+  }
+
+  /**
+   * 打开 B 站点播视频的弹幕：入口和临时连接一样，只是不收直播间弹幕，
+   * 而是按视频时间轴把弹幕放出来（弹幕层底部会出现进度条）。
+   */
+  async function openVideoDanmaku() {
+    const value = videoInput.trim();
+    if (!value || isOpeningVideo) {
+      return;
+    }
+    setIsOpeningVideo(true);
+    setVideoError(null);
+    try {
+      await invoke("open_video_danmaku", { input: value });
+      // 弹幕层平时隐藏，和临时连接一样打开后才出现。
+      await invoke("show_window", { label: "main" });
+      setVideoInput("");
+    } catch (openError) {
+      setVideoError(String(openError));
+    } finally {
+      setIsOpeningVideo(false);
     }
   }
 
@@ -226,6 +252,50 @@ export function ConnectPanel({
         {error ? (
           <StatusBanner description={error} title="连接失败" tone="danger" />
         ) : null}
+
+        <div className="mt-3 border-t border-[var(--drift-ui-line)] pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--drift-ui-ink)]">
+              <span className="size-1.5 rounded-full bg-[#00aeec]" />
+              视频弹幕
+            </h3>
+            <span className="text-[10px] text-[var(--drift-ui-muted)]">
+              BV 号 / 视频链接，可带 ?p= 选分P
+            </span>
+          </div>
+          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_88px] items-center gap-2">
+            <Input
+              aria-label="BV 号或视频链接"
+              id="home-video-input"
+              inputSize="sm"
+              onChange={(event) => setVideoInput(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.nativeEvent.isComposing) {
+                  return;
+                }
+                event.preventDefault();
+                void openVideoDanmaku();
+              }}
+              placeholder="例如 BV1Js411o76u 或视频页链接"
+              value={videoInput}
+            />
+            <Button
+              disabled={!videoInput.trim() || isOpeningVideo}
+              onClick={() => void openVideoDanmaku()}
+              size="sm"
+              variant="primary"
+            >
+              {isOpeningVideo ? "打开中…" : "打开"}
+            </Button>
+          </div>
+          {videoError ? (
+            <StatusBanner
+              description={videoError}
+              title="打开视频弹幕失败"
+              tone="danger"
+            />
+          ) : null}
+        </div>
 
         {temporarySessions.length > 0 ? (
           <div className="mt-2 grid gap-1.5">

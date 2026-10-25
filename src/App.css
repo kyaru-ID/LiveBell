@@ -50,6 +50,11 @@ button {
   will-change: transform;
 }
 
+/* 视频暂停时，屏幕上已经滚出来的弹幕停在原地；继续播放后从暂停点接着走。 */
+.danmaku-layer[data-paused="true"] .danmaku {
+  animation-play-state: paused;
+}
+
 .danmaku-content {
   display: inline-flex;
   align-items: center;
