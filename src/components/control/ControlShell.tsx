@@ -46,18 +46,18 @@ export function ControlShell({
           onCollapsedChange={onCollapsedChange}
           onTabChange={onTabChange}
         />
-        <section className="grid min-h-0 grid-rows-[46px_auto_minmax(0,1fr)_auto] overflow-hidden">
+        <section className="grid min-h-0 min-w-0 grid-rows-[54px_auto_minmax(0,1fr)_auto] overflow-hidden">
           <header className="drift-theme-transition flex items-center justify-between border-b border-drift-line px-4">
-            <h1 className="drift-theme-transition m-0 text-[13px] font-bold text-drift-ink">
+            <h1 className="drift-theme-transition m-0 text-[16px] font-semibold text-drift-ink">
               {getSettingsTabLabel(activeTab)}
             </h1>
             <div className="flex min-w-0 items-center justify-end gap-2">
-              <div className="drift-theme-transition min-w-0 truncate text-[9px] text-[var(--drift-ui-muted)]">
+              <div className="drift-theme-transition min-w-0 truncate text-[11px] text-[var(--drift-ui-muted)] max-[419px]:hidden">
                 {status}
               </div>
               {themeError ? (
                 <span
-                  className="drift-theme-transition min-w-0 truncate text-[9px] text-[var(--drift-ui-danger)]"
+                  className="drift-theme-transition min-w-0 truncate text-[11px] text-[var(--drift-ui-danger)]"
                   role="alert"
                 >
                   {themeError}
@@ -84,7 +84,7 @@ export function ControlShell({
           <div className="drift-theme-transition row-start-3 min-h-0 overflow-hidden bg-drift-surface-dark text-drift-ink">
             {children}
           </div>
-          <footer className="drift-theme-transition row-start-4 border-t border-drift-line px-4 py-2 text-[9px] text-[var(--drift-ui-subtle)]">
+          <footer className="drift-theme-transition row-start-4 border-t border-drift-line px-4 py-2 text-[11px] leading-5 text-[var(--drift-ui-muted)]">
             {footer}
           </footer>
         </section>

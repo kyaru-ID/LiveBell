@@ -34,16 +34,16 @@ export function SettingsSection({
   return (
     <section
       aria-label={ariaLabel}
-      className={classNames("grid gap-1.5", className)}
+      className={classNames("grid min-w-0 gap-2.5", className)}
       {...props}
     >
       <header className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 px-1">
         <div className="grid gap-0.5">
-          <h2 className="drift-theme-transition m-0 text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--drift-ui-muted)]">
+          <h2 className="drift-theme-transition m-0 text-[13px] font-semibold text-drift-ink">
             {title}
           </h2>
           {description ? (
-            <p className="drift-theme-transition m-0 text-[9px] leading-4 text-[var(--drift-ui-subtle)]">
+            <p className="drift-theme-transition m-0 text-[11px] leading-5 text-[var(--drift-ui-muted)]">
               {description}
             </p>
           ) : null}
@@ -75,7 +75,7 @@ export function SettingsRow({
   ...props
 }: SettingsRowProps) {
   const labelNode = (
-    <span className="drift-theme-transition text-[11px] font-semibold text-drift-ink">{label}</span>
+    <span className="drift-theme-transition text-[13px] font-semibold text-drift-ink">{label}</span>
   );
   const labelElement = htmlFor ? (
     <label htmlFor={htmlFor}>{labelNode}</label>
@@ -83,7 +83,7 @@ export function SettingsRow({
     labelNode
   );
   const descriptionNode = (
-    <span className="drift-theme-transition min-w-0 text-[9px] leading-4 text-[var(--drift-ui-subtle)] max-[519px]:col-span-2 max-[519px]:row-start-2">
+    <span className="drift-theme-transition min-w-0 text-[11px] leading-4 text-[var(--drift-ui-muted)]">
       {description}
     </span>
   );
@@ -91,27 +91,20 @@ export function SettingsRow({
   return (
     <div
       className={classNames(
-        "drift-theme-transition grid min-h-10 items-center gap-3 border-t border-drift-line px-3 first:border-t-0 max-[519px]:grid-cols-[minmax(0,1fr)_max-content] max-[519px]:gap-x-2 max-[519px]:py-2",
-        descriptionLayout === "inline"
-          ? "grid-cols-[minmax(0,1fr)_max-content]"
-          : "grid-cols-[88px_minmax(0,1fr)_max-content]",
+        "drift-theme-transition box-border grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 gap-y-1.5 border-t border-drift-line px-4 py-2 first:border-t-0 max-[519px]:grid-cols-1",
         className,
       )}
       data-description-layout={descriptionLayout}
       {...props}
     >
-      {descriptionLayout === "inline" ? (
-        <div className="settings-row-metadata grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-2 max-[519px]:contents">
-          {labelElement}
-          {descriptionNode}
-        </div>
-      ) : (
-        <>
-          {labelElement}
-          {descriptionNode}
-        </>
-      )}
-      <div className="min-w-0 max-[519px]:col-start-2 max-[519px]:row-start-1">
+      <div className={classNames(
+        "settings-row-metadata grid min-w-0 gap-0.5",
+        descriptionLayout === "inline" && "grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-2 max-[619px]:grid-cols-1",
+      )}>
+        {labelElement}
+        {description ? descriptionNode : null}
+      </div>
+      <div className="min-w-0">
         {control}
       </div>
     </div>
@@ -141,7 +134,7 @@ export function DataValue({
   return (
     <span
       className={classNames(
-        "drift-data-text drift-theme-transition min-w-0 truncate text-[10px] text-[var(--drift-ui-ink-soft)]",
+        "drift-data-text drift-theme-transition min-w-0 truncate text-[12px] text-[var(--drift-ui-ink-soft)]",
         className,
       )}
       {...props}

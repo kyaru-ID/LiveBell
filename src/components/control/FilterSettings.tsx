@@ -126,9 +126,9 @@ export function FilterSettings({
       rules.map((rule) =>
         rule.id === ruleId
           ? {
-              ...rule,
-              ...patch,
-            }
+            ...rule,
+            ...patch,
+          }
           : rule,
       ),
     );
@@ -142,7 +142,7 @@ export function FilterSettings({
     <SettingsPage>
       {pausedFanMedalRooms.map((room) => (
         <p
-          className="drift-theme-transition m-0 rounded-lg border border-[var(--drift-ui-warning-border)] bg-[var(--drift-ui-warning-soft)] px-3 py-2 text-[10px] text-[var(--drift-ui-warning)]"
+          className="drift-theme-transition m-0 rounded-lg border border-[var(--drift-ui-warning-border)] bg-[var(--drift-ui-warning-soft)] px-3 py-2 text-[12px] leading-5 text-[var(--drift-ui-warning)]"
           key={room.roomId}
           role="alert"
         >
@@ -151,85 +151,89 @@ export function FilterSettings({
       ))}
       <SettingsSection
         actions={
-          <span className="drift-theme-transition text-[9px] text-[var(--drift-ui-muted)]">
+          <span className="drift-theme-transition text-[11px] text-[var(--drift-ui-muted)]">
             {rules.length} 条已保存
           </span>
         }
         title="新增规则"
       >
-        <div className="grid min-w-0 grid-cols-4 gap-2 px-3 py-3 max-[519px]:grid-cols-2">
-          <Input
-            className="col-span-2 min-w-0"
-            onChange={(event) => setName(event.currentTarget.value)}
-            placeholder="规则名称"
-            value={name}
-          />
-          <Select
-            aria-label="规则目标"
-            className="min-w-0"
-            onChange={(event) =>
-              changeTarget(event.currentTarget.value as FilterTarget)
-            }
-            value={target}
-          >
-            {Object.entries(TARGET_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="匹配方式"
-            className="min-w-0"
-            disabled={
-              target === "senderUid" || target === "currentRoomFanMedal"
-            }
-            onChange={(event) =>
-              setOperator(event.currentTarget.value as FilterOperator)
-            }
-            value={operator}
-          >
-            {Object.entries(OPERATOR_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="规则动作"
-            className="min-w-0"
-            onChange={(event) =>
-              setAction(event.currentTarget.value as FilterAction)
-            }
-            value={action}
-          >
-            {Object.entries(ACTION_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </Select>
-          {target === "currentRoomFanMedal" ? (
-            <Select
-              aria-label="粉丝牌状态"
-              className="col-span-2 min-w-0"
-              onChange={(event) => setValue(event.currentTarget.value)}
-              value={value}
-            >
-              <option value="yes">已佩戴</option>
-              <option value="no">未佩戴</option>
-            </Select>
-          ) : (
+        <div className="grid min-w-0 grid-cols-2 items-end gap-3 px-4 py-4 max-[519px]:grid-cols-1">
+          <label className="col-span-2 grid min-w-0 gap-1.5 text-[12px] font-semibold text-drift-ink max-[519px]:col-span-1">
+            规则名称（可选）
             <Input
-              aria-label="规则值"
-              className="col-span-2 min-w-0"
-              onChange={(event) => setValue(event.currentTarget.value)}
-              placeholder={VALUE_PLACEHOLDERS[target]}
-              value={value}
+              className="min-w-0 font-normal"
+              onChange={(event) => setName(event.currentTarget.value)}
+              placeholder="规则名称"
+              value={name}
             />
-          )}
+          </label>
+          <label className="grid min-w-0 gap-1.5 text-[12px] font-semibold text-drift-ink">
+            规则目标
+            <Select
+              aria-label="规则目标"
+              className="min-w-0"
+              onChange={(event) =>
+                changeTarget(event.currentTarget.value as FilterTarget)
+              }
+              value={target}
+            >
+              {Object.entries(TARGET_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="grid min-w-0 gap-1.5 text-[12px] font-semibold text-drift-ink">
+            匹配方式
+            <Select
+              aria-label="匹配方式"
+              className="min-w-0"
+              disabled={
+                target === "senderUid" || target === "currentRoomFanMedal"
+              }
+              onChange={(event) =>
+                setOperator(event.currentTarget.value as FilterOperator)
+              }
+              value={operator}
+            >
+              {Object.entries(OPERATOR_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="grid min-w-0 gap-1.5 text-[12px] font-semibold text-drift-ink">
+            {target === "currentRoomFanMedal" ? "粉丝牌状态" : "匹配内容"}
+            {target === "currentRoomFanMedal" ? (
+              <Select aria-label="粉丝牌状态" className="min-w-0" onChange={(event) => setValue(event.currentTarget.value)} value={value}>
+                <option value="yes">已佩戴</option>
+                <option value="no">未佩戴</option>
+              </Select>
+            ) : (
+              <Input aria-label="规则值" className="min-w-0 font-normal" onChange={(event) => setValue(event.currentTarget.value)} placeholder={VALUE_PLACEHOLDERS[target]} value={value} />
+            )}
+          </label>
+          <label className="grid min-w-0 gap-1.5 text-[12px] font-semibold text-drift-ink">
+            规则动作
+            <Select
+              aria-label="规则动作"
+              className="min-w-0"
+              onChange={(event) =>
+                setAction(event.currentTarget.value as FilterAction)
+              }
+              value={action}
+            >
+              {Object.entries(ACTION_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </label>
           <Button
-            className="min-w-0 max-[519px]:col-span-2"
+            className="col-span-2 min-w-0 justify-self-end max-[519px]:col-span-1 max-[519px]:w-full"
             onClick={addRule}
             variant="primary"
           >
@@ -238,7 +242,7 @@ export function FilterSettings({
         </div>
         {ruleError ? (
           <p
-            className="drift-theme-transition m-0 border-t border-drift-line px-3 py-2 text-[10px] text-[var(--drift-ui-warning)]"
+            className="drift-theme-transition m-0 border-t border-drift-line px-3 py-2 text-[12px] text-[var(--drift-ui-warning)]"
             role="alert"
           >
             {ruleError}
@@ -248,7 +252,7 @@ export function FilterSettings({
 
       <SettingsSection
         actions={
-          <span className="drift-theme-transition text-[9px] text-[var(--drift-ui-muted)]">{rules.length} 条</span>
+          <span className="drift-theme-transition text-[11px] text-[var(--drift-ui-muted)]">{rules.length} 条</span>
         }
         title="规则列表"
       >
@@ -275,23 +279,23 @@ export function FilterSettings({
                         updateRule(rule.id, { enabled: checked })
                       }
                     />
-                    <span className="drift-theme-transition min-w-0 truncate text-[11px] font-semibold text-drift-ink">
+                    <span className="drift-theme-transition min-w-0 truncate text-[13px] font-semibold text-drift-ink">
                       {rule.name}
                     </span>
                   </div>
-                  <span className="drift-theme-transition min-w-0 truncate text-[9px] text-[var(--drift-ui-muted)]">
+                  <span className="drift-theme-transition min-w-0 truncate text-[11px] text-[var(--drift-ui-muted)]">
                     {TARGET_LABELS[rule.target]} · {OPERATOR_LABELS[rule.operator]} ·{" "}
                     {rule.value}
                   </span>
                 </div>
                 <span
                   className={classNames(
-                    "drift-theme-transition shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold",
+                    "drift-theme-transition shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] font-bold",
                     isFollowedUserRule(rule)
                       ? "border-[var(--drift-ui-followed-border)] bg-[var(--drift-ui-followed-soft)] text-[var(--drift-ui-followed)]"
                       : rule.action === "hide"
-                      ? "border-[var(--drift-ui-danger-border)] bg-[var(--drift-ui-danger-soft)] text-[var(--drift-ui-danger)]"
-                      : "border-[var(--drift-ui-signal)] bg-[var(--drift-ui-selected)] text-[var(--drift-ui-signal-text)]",
+                        ? "border-[var(--drift-ui-danger-border)] bg-[var(--drift-ui-danger-soft)] text-[var(--drift-ui-danger)]"
+                        : "border-[var(--drift-ui-signal)] bg-[var(--drift-ui-selected)] text-[var(--drift-ui-signal-text)]",
                   )}
                 >
                   {isFollowedUserRule(rule)

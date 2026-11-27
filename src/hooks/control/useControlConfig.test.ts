@@ -25,6 +25,25 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+test("向后端提交修改时同时携带原始基线", async () => {
+  const payloads: { config: AppConfig; baseConfig: AppConfig }[] = [];
+  mockIPC((_command, payload) => {
+    const request = payload as { config: AppConfig; baseConfig: AppConfig };
+    payloads.push(request);
+    return request.config;
+  });
+  const first = renderHook(() => useControlConfig({ config: DEFAULT_APP_CONFIG, onConfigChange: vi.fn() }));
+  const second = renderHook(() => useControlConfig({ config: DEFAULT_APP_CONFIG, onConfigChange: vi.fn() }));
+  await act(async () => {
+    await first.result.current.updateAppearance({ theme: "dark" });
+    await second.result.current.updateAppearance({ fontSize: 30 });
+  });
+  expect(payloads[0].baseConfig.appearance.theme).toBe("light");
+  expect(payloads[1].baseConfig.appearance.fontSize).toBe(20);
+  expect(payloads[1].baseConfig.appearance.theme).toBe("light");
+  expect(payloads[1].config.appearance.fontSize).toBe(30);
+});
+
 test("serializes rapid flow and density saves against the first success", async () => {
   const saves: AppConfig[] = [];
   const first = deferred<AppConfig>();

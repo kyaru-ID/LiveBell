@@ -4,7 +4,7 @@ import { HelpCircle } from "lucide-react";
 import { useStreamerSearch } from "../../hooks/useStreamerSearch";
 import { useVideoDanmaku } from "../../hooks/useVideoDanmaku";
 import { STREAMER_NOT_FOUND_HINT, type StreamerCandidate } from "../../types/streamer";
-import { type RoomSessionSnapshot } from "../../types/roomSession";
+import { isNetworkSessionActive, type RoomSessionSnapshot } from "../../types/roomSession";
 import { roomIdFromInput } from "../../utils/roomId";
 import { Button, IconButton, Input, Tooltip, TooltipProvider } from "../ui";
 import { StatusBanner } from "../control/settings-ui";
@@ -63,7 +63,7 @@ export function ConnectPanel({
     useStreamerSearch();
 
   const activeCount = temporarySessions.filter(
-    (session) => session.status === "connected" || session.status === "connecting",
+    (session) => isNetworkSessionActive(session.status),
   ).length;
 
   async function connectRoom(requestedRoomId: string) {
@@ -186,9 +186,9 @@ export function ConnectPanel({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <section className="drift-theme-transition min-w-0 rounded-[14px] border border-[var(--drift-ui-line)] bg-[var(--drift-ui-raised)] p-4">
+      <section aria-label="临时连接与视频弹幕" className="drift-theme-transition min-w-0 rounded-[14px] border border-[var(--drift-ui-line)] bg-[var(--drift-ui-raised)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-[13px] font-semibold text-[var(--drift-ui-ink)]">
+          <h2 className="m-0 flex items-center gap-2 text-[15px] font-semibold text-[var(--drift-ui-ink)]">
             <span className="size-1.5 rounded-full bg-[#fb7299]" />
             临时连接
             {temporarySessions.length > 0
@@ -196,22 +196,23 @@ export function ConnectPanel({
               : ""}
           </h2>
           <div className="flex shrink-0 items-center gap-2">
-            {activeCount > 0 ? (
+            {temporarySessions.length > 0 ? (
               <Button
+                aria-label="断开全部临时连接"
                 onClick={() => void onDisconnectAll()}
                 size="sm"
                 variant="danger"
               >
-                全部断开
+                断开临时连接{activeCount > 0 ? ` · ${activeCount}` : ""}
               </Button>
             ) : null}
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-[44px_minmax(0,1fr)_28px_88px] items-center gap-2">
-          <span className="text-[11px] text-[var(--drift-ui-ink-soft)]">
+        <div className="mt-4 grid grid-cols-[48px_minmax(0,1fr)_32px_80px] items-center gap-2 max-[519px]:grid-cols-[minmax(0,1fr)_32px_64px]">
+          <label className="text-[12px] text-[var(--drift-ui-ink-soft)] max-[519px]:col-span-3" htmlFor="home-connect-input">
             房间号
-          </span>
+          </label>
           <Input
             aria-label="房间号、直播间链接或主播名"
             id="home-connect-input"
@@ -254,7 +255,7 @@ export function ConnectPanel({
           onSelect={(candidate) => void selectCandidate(candidate)}
         />
 
-        <p className="mt-2 min-h-[16px] text-[11px] text-[var(--drift-ui-ink-soft)]">
+        <p className="mb-0 mt-2 min-h-[16px] text-[12px] leading-5 text-[var(--drift-ui-muted)]">
           {hintText()}
         </p>
 
@@ -262,17 +263,79 @@ export function ConnectPanel({
           <StatusBanner description={error} title="连接失败" tone="danger" />
         ) : null}
 
-        <div className="mt-3 border-t border-[var(--drift-ui-line)] pt-3">
+        {temporarySessions.length > 0 ? (
+          <div aria-label="直播临时连接列表" className="mt-3 grid gap-2">
+            {temporarySessions.map((session) => {
+              const error_text = commandErrors[session.sessionId];
+              return (
+                <div
+                  className="drift-theme-transition grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[var(--drift-ui-line)] bg-[var(--drift-ui-surface)] px-3 py-3 max-[619px]:grid-cols-[36px_minmax(0,1fr)]"
+                  key={session.sessionId}
+                >
+                  {/* 临时连接也显示主播头像；后端还没取到图（或加载失败）时退回名字首字、无名则退回「临」。 */}
+                  <RoomAvatar
+                    name={session.anchorName || "临"}
+                    path={session.anchorAvatar}
+                  />
+                  <div className="grid min-w-0 gap-0.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <strong className="max-w-full truncate text-[13px] text-drift-ink">
+                        {session.anchorName || `房间 ${session.requestedRoomId}`}
+                      </strong>
+                      <span className="shrink-0 rounded-full bg-[var(--drift-ui-hover)] px-2 py-0.5 text-[11px] font-semibold text-[var(--drift-ui-muted)]">
+                        未加入关注
+                      </span>
+                      <span className="drift-data-text shrink-0 text-[11px] text-[var(--drift-ui-muted)]">
+                        {session.requestedRoomId}
+                      </span>
+                    </div>
+                    <span className="drift-theme-transition truncate text-[11px] leading-5 text-[var(--drift-ui-muted)]">
+                      {sessionStatusText(session)}
+                      {session.message ? ` · ${session.message}` : ""}
+                    </span>
+                    {error_text ? (
+                      <span
+                        className="break-words text-[11px] text-[var(--drift-ui-danger)]"
+                        role="alert"
+                      >
+                        {error_text}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center justify-end gap-2 max-[619px]:col-span-2">
+                    <Button
+                      aria-label={`加入关注 ${session.requestedRoomId}`}
+                      onClick={() => void onAddToSaved(String(session.requestedRoomId))}
+                      size="sm"
+                    >
+                      加入关注
+                    </Button>
+                    <Button
+                      aria-label={`断开 ${session.requestedRoomId}`}
+                      onClick={() => void onDisconnectSession(session.sessionId)}
+                      size="sm"
+                      variant="danger"
+                    >
+                      断开
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <div className="mt-4 border-t border-[var(--drift-ui-line)] pt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--drift-ui-ink)]">
+            <h3 className="m-0 flex items-center gap-2 text-[13px] font-semibold text-[var(--drift-ui-ink)]">
               <span className="size-1.5 rounded-full bg-[#00aeec]" />
               视频弹幕
             </h3>
-            <span className="text-[10px] text-[var(--drift-ui-muted)]">
+            <span className="text-[11px] text-[var(--drift-ui-muted)]">
               BV 号 / 视频链接，可带 ?p= 选分P
             </span>
           </div>
-          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_88px] items-center gap-2">
+          <div className="mt-3 grid grid-cols-[minmax(0,1fr)_80px] items-center gap-2 max-[519px]:grid-cols-[minmax(0,1fr)_64px]">
             <Input
               aria-label="BV 号或视频链接"
               id="home-video-input"
@@ -313,68 +376,6 @@ export function ConnectPanel({
             />
           ) : null}
         </div>
-
-        {temporarySessions.length > 0 ? (
-          <div className="mt-2 grid gap-1.5">
-            {temporarySessions.map((session) => {
-              const error_text = commandErrors[session.sessionId];
-              return (
-                <div
-                  className="drift-theme-transition grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[var(--drift-ui-line)] bg-[var(--drift-ui-surface)] px-3 py-2"
-                  key={session.sessionId}
-                >
-                  {/* 临时连接也显示主播头像；后端还没取到图（或加载失败）时退回名字首字、无名则退回「临」。 */}
-                  <RoomAvatar
-                    name={session.anchorName || "临"}
-                    path={session.anchorAvatar}
-                  />
-                  <div className="grid min-w-0 gap-0.5">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <strong className="truncate text-[11px] text-drift-ink">
-                        {session.anchorName || `房间 ${session.requestedRoomId}`}
-                      </strong>
-                      <span className="shrink-0 rounded-full bg-[var(--drift-ui-hover)] px-2 py-0.5 text-[10px] font-semibold text-[var(--drift-ui-muted)]">
-                        未加入关注
-                      </span>
-                      <span className="drift-data-text shrink-0 text-[10px] text-[var(--drift-ui-muted)]">
-                        {session.requestedRoomId}
-                      </span>
-                    </div>
-                    <span className="drift-theme-transition truncate text-[9px] text-[var(--drift-ui-muted)]">
-                      {sessionStatusText(session)}
-                      {session.message ? ` · ${session.message}` : ""}
-                    </span>
-                    {error_text ? (
-                      <span
-                        className="text-[9px] text-[var(--drift-ui-danger)]"
-                        role="alert"
-                      >
-                        {error_text}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      aria-label={`加入关注 ${session.requestedRoomId}`}
-                      onClick={() => void onAddToSaved(String(session.requestedRoomId))}
-                      size="sm"
-                    >
-                      加入关注
-                    </Button>
-                    <Button
-                      aria-label={`断开 ${session.requestedRoomId}`}
-                      onClick={() => void onDisconnectSession(session.sessionId)}
-                      size="sm"
-                      variant="danger"
-                    >
-                      断开
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
       </section>
     </TooltipProvider>
   );

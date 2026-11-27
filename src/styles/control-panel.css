@@ -1,1 +1,53 @@
 @import "./control-panel/about-help.css";
+
+/* 原生滑块在亮色下会显示黑色轨道，统一为跟随主题的进度与浅色底轨。 */
+.drift-control-shell .drift-settings-range {
+  box-sizing: border-box;
+  height: 6px;
+  margin: 8px 0;
+  appearance: none;
+  border-radius: 999px;
+  background: linear-gradient(to right,
+    var(--drift-ui-signal) var(--range-progress),
+    var(--drift-ui-line) var(--range-progress));
+  cursor: pointer;
+}
+
+.drift-control-shell .drift-settings-range::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  appearance: none;
+  border: 2px solid var(--drift-ui-signal);
+  border-radius: 50%;
+  background: var(--drift-ui-raised);
+  box-shadow: 0 1px 3px var(--drift-ui-shadow);
+}
+
+.drift-control-shell .drift-settings-range:focus-visible {
+  outline: 2px solid var(--drift-ui-signal);
+  outline-offset: 5px;
+}
+
+.drift-control-shell .drift-settings-range:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.drift-control-shell .saved-room-menu {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 6px);
+  display: grid;
+  min-width: 156px;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--drift-ui-border);
+  border-radius: 10px;
+  background: var(--drift-ui-raised);
+  box-shadow: 0 6px 20px var(--drift-ui-shadow);
+}
+
+.drift-control-shell .saved-room-menu .drift-button {
+  justify-content: flex-start;
+}

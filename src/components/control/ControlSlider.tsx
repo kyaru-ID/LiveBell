@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { DataValue, SettingsRow } from "./settings-ui";
 
 type ControlSliderProps = {
@@ -30,12 +30,13 @@ export function ControlSlider({
         <div className="grid min-w-[180px] grid-cols-[minmax(96px,1fr)_48px] items-center gap-3 max-[519px]:min-w-0">
           <input
             aria-label={label}
-            className="w-full accent-drift-signal"
+            className="drift-settings-range w-full accent-drift-signal"
             disabled={disabled}
             id={id}
             max={max}
             min={min}
             onChange={(event) => onChange(Number(event.currentTarget.value))}
+            style={{ "--range-progress": `${max > min ? Math.min(100, Math.max(0, (value - min) / (max - min) * 100)) : 0}%` } as CSSProperties}
             type="range"
             value={value}
           />

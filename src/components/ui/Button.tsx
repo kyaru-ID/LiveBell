@@ -1,10 +1,11 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 import { classNames } from "../../utils/classNames";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 type ButtonSize = "sm" | "md";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  ref?: Ref<HTMLButtonElement>;
   active?: boolean;
   fullWidth?: boolean;
   size?: ButtonSize;
@@ -23,8 +24,8 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
-  sm: "min-h-7 px-2 text-[10px]",
-  md: "min-h-8 px-3 text-[11px]",
+  sm: "min-h-8 px-2.5 text-[12px]",
+  md: "min-h-9 px-3 text-[13px]",
 };
 
 export function Button({
@@ -39,7 +40,7 @@ export function Button({
   return (
     <button
       className={classNames(
-        "drift-button inline-flex cursor-pointer appearance-none items-center justify-center gap-1.5 rounded-drift border font-semibold leading-none transition-colors",
+        "drift-button inline-flex cursor-pointer appearance-none items-center justify-center gap-1.5 whitespace-nowrap rounded-drift border font-semibold leading-none transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-drift-primary/25",
         "disabled:cursor-default disabled:opacity-45",
         SIZE_CLASSES[size],

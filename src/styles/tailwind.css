@@ -109,9 +109,9 @@ html[data-drift-theme="light"] {
   --drift-ui-muted: #60777e;
   --drift-ui-subtle: #6f858c;
   --drift-ui-disabled: #9aabb0;
-  --drift-ui-signal: #0e99ad;
+  --drift-ui-signal: #087f91;
   --drift-ui-signal-text: #087f8f;
-  --drift-ui-on-signal: #071014;
+  --drift-ui-on-signal: #ffffff;
   --drift-ui-success: #167d50;
   --drift-ui-warning: #9a5d16;
   --drift-ui-danger: #b23f4d;
@@ -238,7 +238,7 @@ html[data-drift-theme] {
   border-color: var(--drift-ui-border);
   background: var(--drift-ui-input);
   color: var(--drift-ui-ink);
-  box-shadow: inset 0 1px rgba(0, 0, 0, 0.24);
+  box-shadow: none;
 }
 
 .drift-control-shell .drift-input::placeholder {
@@ -262,11 +262,11 @@ html[data-drift-theme] {
 }
 
 .drift-control-shell .drift-toggle-thumb {
-  background: var(--drift-ui-ink);
+  background: #ffffff;
 }
 
 .drift-control-shell .drift-toggle[aria-checked="true"] .drift-toggle-thumb {
-  background: var(--drift-ui-on-signal);
+  background: #ffffff;
 }
 
 .drift-control-shell .drift-panel {

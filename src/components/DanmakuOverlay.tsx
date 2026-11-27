@@ -7,7 +7,7 @@ type DanmakuOverlayProps = {
   showEmotes: boolean;
   trackCount: number;
   showUsername: boolean;
-  /** 视频暂停时冻结所有滚动动画。 */
+  /** 视频暂停时只冻结视频来源的滚动动画。 */
   paused?: boolean;
 };
 

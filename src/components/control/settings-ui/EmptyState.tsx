@@ -22,8 +22,8 @@ export function EmptyState({
       )}
       {...props}
     >
-      <strong className="drift-theme-transition text-[11px] text-[var(--drift-ui-ink-soft)]">{title}</strong>
-      <span className="drift-theme-transition text-[9px] leading-4 text-[var(--drift-ui-subtle)]">{description}</span>
+      <strong className="drift-theme-transition text-[13px] text-[var(--drift-ui-ink-soft)]">{title}</strong>
+      <span className="drift-theme-transition text-[11px] leading-5 text-[var(--drift-ui-muted)]">{description}</span>
       {action ? <div className="mt-1">{action}</div> : null}
     </div>
   );

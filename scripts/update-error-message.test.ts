@@ -13,7 +13,7 @@ test("returns stable Chinese messages for updater failures", () => {
   );
   assert.equal(
     getUpdateErrorMessage("restart"),
-    "无法自动重启 Drift，请手动重启应用。",
+    "无法自动重启 LiveBell，请手动重启应用。",
   );
 });
 

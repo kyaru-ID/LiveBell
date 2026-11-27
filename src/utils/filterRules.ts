@@ -137,10 +137,17 @@ function candidateValue(message: LiveMessage, rule: FilterRule): string | null {
   }
 }
 
+const REGEX_CACHE_LIMIT = 256;
+const regexCache = new Map<string, RegExp | null>();
+
 function matchesRegex(candidate: string, pattern: string) {
-  try {
-    return new RegExp(pattern).test(candidate);
-  } catch {
-    return false;
+  if (!regexCache.has(pattern)) {
+    let compiled: RegExp | null;
+    try { compiled = new RegExp(pattern); } catch { compiled = null; }
+    if (regexCache.size >= REGEX_CACHE_LIMIT) {
+      regexCache.delete(regexCache.keys().next().value!);
+    }
+    regexCache.set(pattern, compiled);
   }
+  return regexCache.get(pattern)?.test(candidate) ?? false;
 }

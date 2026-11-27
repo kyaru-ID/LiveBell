@@ -9,10 +9,14 @@
 //! - 弹幕层窗口保持整窗鼠标穿透；进度条只在编辑模式（整窗可点）里显示。
 
 mod api;
+mod playback;
 mod proto;
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex, MutexGuard,
+};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -39,7 +43,9 @@ const EVENT_CHANGED: &str = "video-danmaku-changed";
 const EVENT_PROGRESS: &str = "video-danmaku-progress";
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// 拉弹幕分段要带登录态：B 站对匿名请求只回抽样弹幕（实测约 1/6.3）。
@@ -55,6 +61,7 @@ fn current_cookie() -> String {
 #[derive(Default)]
 pub(crate) struct VideoDanmakuState {
     inner: Arc<Mutex<Option<VideoSession>>>,
+    generation: AtomicU64,
 }
 
 struct VideoSession {
@@ -77,7 +84,8 @@ struct VideoSession {
     backfill: Option<(u64, u64)>,
     segments: HashMap<u64, Vec<DanmakuElem>>,
     loading: HashSet<u64>,
-    failed: HashMap<u64, String>,
+    failed: HashMap<u64, playback::SegmentFailure>,
+    pending: VecDeque<LiveMessage>,
     error: Option<String>,
     /// 打开会话时的登录 Cookie：拉分段必须带，否则 B 站只返回抽样弹幕。
     cookie: String,
@@ -210,9 +218,15 @@ pub(crate) enum VideoControl {
         #[serde(rename = "positionMs")]
         position_ms: u64,
     },
-    SetRate { rate: f64 },
-    SetLooping { looping: bool },
-    SelectPage { index: usize },
+    SetRate {
+        rate: f64,
+    },
+    SetLooping {
+        looping: bool,
+    },
+    SelectPage {
+        index: usize,
+    },
 }
 
 fn to_live_message(cid: u64, elem: &DanmakuElem) -> LiveMessage {
@@ -243,7 +257,10 @@ fn to_live_message(cid: u64, elem: &DanmakuElem) -> LiveMessage {
 }
 
 fn store_segment(session: &mut VideoSession, index: u64, elems: Vec<DanmakuElem>) {
-    let mut items: Vec<DanmakuElem> = elems.into_iter().filter(DanmakuElem::is_renderable).collect();
+    let mut items: Vec<DanmakuElem> = elems
+        .into_iter()
+        .filter(DanmakuElem::is_renderable)
+        .collect();
     items.sort_by_key(|elem| elem.progress_ms);
     tracing::info!(
         target: "livebell::video",
@@ -253,6 +270,7 @@ fn store_segment(session: &mut VideoSession, index: u64, elems: Vec<DanmakuElem>
         "video danmaku segment stored"
     );
     session.segments.insert(index, items);
+    playback::prune_cache(session);
 }
 
 fn spawn_segment_fetch(
@@ -279,6 +297,7 @@ fn spawn_segment_fetch(
             Ok(elems) => {
                 store_segment(session, index, elems);
                 session.failed.remove(&index);
+                session.error = None;
             }
             Err(error) => {
                 tracing::warn!(
@@ -288,10 +307,7 @@ fn spawn_segment_fetch(
                     error = %error,
                     "video danmaku segment fetch failed"
                 );
-                session.failed.insert(index, error.clone());
-                if index == 1 && session.segments.is_empty() {
-                    session.error = Some(error);
-                }
+                playback::record_failure(session, index, error, std::time::Instant::now());
             }
         }
         let snapshot = session.snapshot();
@@ -315,173 +331,38 @@ async fn tick(
     ticks: u64,
     elapsed_ms: f64,
 ) {
-    let emit_progress = ticks % PROGRESS_EVERY_TICKS == 0;
-    let mut fetch_jobs: Vec<(String, u64, u64, u64, String)> = Vec::new();
-    let mut batch: Option<DanmakuRoomBatch> = None;
-    let mut progress: Option<VideoProgressEvent> = None;
-
-    {
+    let (jobs, batch, progress) = {
         let mut guard = lock(inner);
-        let session = match guard.as_mut() {
-            Some(session) => session,
-            None => return,
+        let Some(session) = guard.as_mut() else {
+            return;
         };
-
-        if session.playing {
-            let current = session.segment_of(session.position_ms);
-            // 当前段没就绪就先不推进，避免弹幕被跳过。
-            if session.segments.contains_key(&current) {
-                let step = advance_step(elapsed_ms, session.rate);
-                session.position_ms = (session.position_ms + step).min(session.duration_ms);
-                if session.position_ms >= session.duration_ms {
-                    if session.looping {
-                        session.position_ms = 0;
-                        session.last_emit_ms = 0;
-                    } else {
-                        session.playing = false;
-                        session.finished = true;
-                    }
-                }
-            }
-        }
-
-        // 需要的分段：当前段 + 快到段尾时的下一段。
-        let current = session.segment_of(session.position_ms);
-        let total = session.segment_count();
-        let mut wanted = vec![current];
-        if current < total && session.position_ms + PREFETCH_AHEAD_MS >= current * SEGMENT_MS {
-            wanted.push(current + 1);
-        }
-        for index in wanted {
-            if index == 0 || index > total {
-                continue;
-            }
-            if session.segments.contains_key(&index)
-                || session.loading.contains(&index)
-                || session.failed.contains_key(&index)
-            {
-                continue;
-            }
-            session.loading.insert(index);
-            fetch_jobs.push((
-                session.session_id.clone(),
-                session.aid,
-                session.cid,
-                index,
-                session.cookie.clone(),
-            ));
-        }
-
-        let from = session.last_emit_ms;
-        let to = session.position_ms;
-        let mut collected: Vec<(u64, LiveMessage)> = Vec::new();
-
-        if session.playing && to > from {
-            let start_seg = session.segment_of(from);
-            let end_seg = session.segment_of(to);
-            for index in start_seg..=end_seg {
-                if let Some(items) = session.segments.get(&index) {
-                    for elem in items {
-                        if elem.progress_ms >= from && elem.progress_ms < to {
-                            collected.push((elem.progress_ms, to_live_message(session.cid, elem)));
-                        }
-                    }
-                }
-            }
-        }
-
-        // 拖动进度条后回填：把目标位置之前 5 秒内的弹幕一次性铺回去，
-        // 让用户立刻看到「这个时间点该有的弹幕」。
-        if let Some((backfill_from, backfill_to)) = session.backfill {
-            let start_seg = session.segment_of(backfill_from);
-            let end_seg = session.segment_of(backfill_to.saturating_sub(1));
-            let mut ready = true;
-            for index in start_seg..=end_seg {
-                match session.segments.get(&index) {
-                    Some(items) => {
-                        for elem in items {
-                            if elem.progress_ms >= backfill_from
-                                && elem.progress_ms < backfill_to
-                            {
-                                collected.push((
-                                    elem.progress_ms,
-                                    to_live_message(session.cid, elem),
-                                ));
-                            }
-                        }
-                    }
-                    None => {
-                        ready = false;
-                        // 这一段还没下载，先请求它，下一个 tick 再补发。
-                        if !session.loading.contains(&index)
-                            && !session.failed.contains_key(&index)
-                        {
-                            session.loading.insert(index);
-                            fetch_jobs.push((
-                                session.session_id.clone(),
-                                session.aid,
-                                session.cid,
-                                index,
-                                session.cookie.clone(),
-                            ));
-                        }
-                    }
-                }
-            }
-            if ready {
-                session.backfill = None;
-            }
-        }
-
-        if !collected.is_empty() {
-            collected.sort_by_key(|(progress, _)| *progress);
-            let truncated = collected.len() > MAX_BATCH_MESSAGES;
-            if truncated {
-                collected.truncate(MAX_BATCH_MESSAGES);
-            }
-            if session.playing && to > from {
-                session.last_emit_ms = if truncated {
-                    collected
-                        .last()
-                        .map(|(position, _)| position.saturating_add(1))
-                        .unwrap_or(to)
-                } else {
-                    to
-                };
-            }
-            let messages: Vec<LiveMessage> =
-                collected.into_iter().map(|(_, message)| message).collect();
-            batch = Some(DanmakuRoomBatch {
-                session_id: session.session_id.clone(),
-                room_id: session.cid,
-                anchor_name: Some(session.title.clone()),
-                fan_medal_name: None,
-                active_source_count: 1,
-                messages,
-                source_kind: Some("video"),
-            });
-        } else if session.playing && to > from {
-            session.last_emit_ms = to;
-        }
-
-        if emit_progress {
-            progress = Some(session.progress_event());
-        }
-    }
-
-    for (session_id, aid, cid, index, cookie) in fetch_jobs {
-        spawn_segment_fetch(app.clone(), inner.clone(), session_id, aid, cid, index, cookie);
+        let (jobs, messages) = playback::step(session, elapsed_ms, std::time::Instant::now());
+        let batch = (!messages.is_empty()).then(|| DanmakuRoomBatch {
+            session_id: session.session_id.clone(),
+            room_id: session.cid,
+            anchor_name: Some(session.title.clone()),
+            fan_medal_name: None,
+            active_source_count: 1,
+            messages,
+            source_kind: Some("video"),
+        });
+        let progress = (ticks % PROGRESS_EVERY_TICKS == 0).then(|| session.progress_event());
+        (jobs, batch, progress)
+    };
+    for (session_id, aid, cid, index, cookie) in jobs {
+        spawn_segment_fetch(
+            app.clone(),
+            inner.clone(),
+            session_id,
+            aid,
+            cid,
+            index,
+            cookie,
+        );
     }
     if let Some(batch) = batch {
-        let has_messages = !batch.messages.is_empty();
-        if has_messages {
-            if let Err(error) = app.emit(EVENT_BATCH, batch) {
-                tracing::warn!(
-                    target: "livebell::video",
-                    error = %error,
-                    "video danmaku batch emit failed"
-                );
-            }
+        if let Err(error) = app.emit(EVENT_BATCH, batch) {
+            tracing::warn!(target: "livebell::video", %error, "视频弹幕发送失败");
         }
     }
     if let Some(progress) = progress {
@@ -515,6 +396,11 @@ pub(crate) async fn open_video_danmaku(
     app: AppHandle,
     input: String,
 ) -> Result<VideoSnapshot, String> {
+    let generation = app
+        .state::<VideoDanmakuState>()
+        .generation
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
     let info = resolve_video(&input).await?;
     let page_index = info.initial_page_index(info.requested_page);
     let page = info
@@ -528,7 +414,7 @@ pub(crate) async fn open_video_danmaku(
         info.duration_ms
     };
     let cid = page.cid;
-    let session_id = format!("video:{cid}");
+    let session_id = format!("video:{cid}:{generation}");
 
     let mut session = VideoSession {
         session_id: session_id.clone(),
@@ -549,6 +435,7 @@ pub(crate) async fn open_video_danmaku(
         segments: HashMap::new(),
         loading: HashSet::new(),
         failed: HashMap::new(),
+        pending: VecDeque::new(),
         error: None,
         cookie: current_cookie(),
     };
@@ -557,9 +444,9 @@ pub(crate) async fn open_video_danmaku(
     let cookie = session.cookie.clone();
     match fetch_segment(session.aid, cid, 1, &cookie).await {
         Ok(elems) => store_segment(&mut session, 1, elems),
-        Err(error) => session.error = Some(error),
+        Err(error) => playback::record_failure(&mut session, 1, error, std::time::Instant::now()),
     }
-    session.playing = session.segments.contains_key(&1);
+    session.playing = true;
     let snapshot = session.snapshot();
 
     tracing::info!(
@@ -571,8 +458,13 @@ pub(crate) async fn open_video_danmaku(
         "video danmaku session opened"
     );
     {
-        let inner = app.state::<VideoDanmakuState>().inner.clone();
-        *lock(&inner) = Some(session);
+        let state = app.state::<VideoDanmakuState>();
+        let inner = state.inner.clone();
+        let mut guard = lock(&inner);
+        if state.generation.load(Ordering::SeqCst) != generation {
+            return Err("视频连接操作已取消".into());
+        }
+        *guard = Some(session);
     }
     let _ = app.emit(EVENT_CHANGED, snapshot.clone());
     Ok(snapshot)
@@ -580,6 +472,9 @@ pub(crate) async fn open_video_danmaku(
 
 #[tauri::command]
 pub(crate) fn close_video_danmaku(app: AppHandle) -> Result<(), String> {
+    app.state::<VideoDanmakuState>()
+        .generation
+        .fetch_add(1, Ordering::SeqCst);
     let inner = app.state::<VideoDanmakuState>().inner.clone();
     let had_session = lock(&inner).take().is_some();
     if had_session {
@@ -602,8 +497,8 @@ pub(crate) async fn video_danmaku_control(
     command: VideoControl,
 ) -> Result<VideoSnapshot, String> {
     let inner = app.state::<VideoDanmakuState>().inner.clone();
-    let mut select_page: Option<u64> = None;
-    let mut snapshot;
+    let mut page_fetch = None;
+    let snapshot;
 
     {
         let mut guard = lock(&inner);
@@ -617,15 +512,19 @@ pub(crate) async fn video_danmaku_control(
                     session.position_ms = 0;
                     session.last_emit_ms = 0;
                     session.backfill = None;
+                    session.pending.clear();
                     session.finished = false;
                 }
                 session.playing = true;
                 session.error = None;
+                let current = session.segment_of(session.position_ms);
+                session.failed.remove(&current);
             }
             VideoControl::Pause => session.playing = false,
             VideoControl::Seek { position_ms } => {
                 session.position_ms = position_ms.min(session.duration_ms);
                 session.last_emit_ms = session.position_ms;
+                session.pending.clear();
                 // 下一个 tick 把新位置前 5 秒的弹幕铺回屏幕。
                 session.backfill = Some((
                     session.position_ms.saturating_sub(BACKFILL_MS),
@@ -654,7 +553,12 @@ pub(crate) async fn video_danmaku_control(
                 } else {
                     session.duration_ms
                 };
-                session.session_id = format!("video:{}", page.cid);
+                let generation = app
+                    .state::<VideoDanmakuState>()
+                    .generation
+                    .fetch_add(1, Ordering::SeqCst)
+                    + 1;
+                session.session_id = format!("video:{}:{generation}", page.cid);
                 session.position_ms = 0;
                 session.last_emit_ms = 0;
                 session.backfill = None;
@@ -663,43 +567,22 @@ pub(crate) async fn video_danmaku_control(
                 session.segments.clear();
                 session.loading.clear();
                 session.failed.clear();
+                session.pending.clear();
                 session.playing = true;
-                select_page = Some(page.cid);
+                session.loading.insert(1);
+                page_fetch = Some((
+                    session.session_id.clone(),
+                    session.aid,
+                    page.cid,
+                    session.cookie.clone(),
+                ));
             }
         }
         snapshot = session.snapshot();
     }
 
-    if let Some(cid) = select_page {
-        // 切P后先把第一段拉回来，再推状态。
-        let (session_id, aid, cookie) = {
-            let guard = lock(&inner);
-            match guard.as_ref() {
-                Some(session) => (
-                    session.session_id.clone(),
-                    session.aid,
-                    session.cookie.clone(),
-                ),
-                None => return Err("当前没有打开的视频弹幕".to_string()),
-            }
-        };
-        let result = fetch_segment(aid, cid, 1, &cookie).await;
-        let mut guard = lock(&inner);
-        if let Some(session) = guard.as_mut() {
-            if session.session_id == session_id {
-                match result {
-                    Ok(elems) => {
-                        store_segment(session, 1, elems);
-                        session.loading.remove(&1);
-                    }
-                    Err(error) => {
-                        session.error = Some(error);
-                        session.playing = false;
-                    }
-                }
-                snapshot = session.snapshot();
-            }
-        }
+    if let Some((session_id, aid, cid, cookie)) = page_fetch {
+        spawn_segment_fetch(app.clone(), inner, session_id, aid, cid, 1, cookie);
     }
 
     let _ = app.emit(EVENT_CHANGED, snapshot.clone());

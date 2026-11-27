@@ -81,11 +81,11 @@ export function StatusBanner({
       {...props}
     >
       <div className="grid min-w-0 gap-0.5">
-        <strong className="drift-theme-transition truncate text-[10px]">
+        <strong className="drift-theme-transition truncate text-[12px]">
           {title}
         </strong>
         {description ? (
-          <span className="drift-theme-transition text-[9px] leading-4">
+          <span className="drift-theme-transition break-words text-[11px] leading-5">
             {description}
           </span>
         ) : null}

@@ -122,6 +122,24 @@ afterEach(() => {
 });
 
 describe("useDanmakuRuntime room batches", () => {
+  test("暂停视频时继续显示直播弹幕，并保留视频待播消息直到恢复", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(({ paused }) => useDanmakuRuntime({
+      config: DEFAULT_APP_CONFIG, roomSessions: CONNECTED_SESSIONS,
+      videoActive: true, videoPaused: paused, trackCount: 3, windowLabel: "main",
+    }), { initialProps: { paused: true } });
+    act(() => {
+      enqueueBatch(result.current, [unknownDanmaku("live", "直播消息")]);
+      result.current.enqueueLiveBatch({ sessionId: "video:1:1", roomId: 1, sourceKind: "video", activeSourceCount: 1,
+        messages: [{ id: "video", roomId: 1, kind: "danmaku", user: "", text: "视频消息" }] });
+      vi.advanceTimersByTime(10000);
+    });
+    expect(result.current.items.some(item => item.text === "直播消息")).toBe(true);
+    expect(result.current.items.some(item => item.isVideo)).toBe(false);
+    rerender({ paused: false });
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(result.current.items.some(item => item.text === "视频消息" && item.isVideo)).toBe(true);
+  });
   test("keeps room sources and scoped stats until the next connection cycle", () => {
     vi.useFakeTimers();
     let roomSessions: RoomSessionSnapshot[] = [

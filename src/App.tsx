@@ -45,6 +45,7 @@ import {
   TRACK_HEIGHT,
 } from "./utils/danmakuRuntime";
 import { classNames } from "./utils/classNames";
+import { applyLiveStatusUpdates, type LiveStatusUpdate } from "./utils/liveStatus";
 import {
   applyDocumentUiTheme,
   applyNativeAppTheme,
@@ -126,10 +127,12 @@ function App() {
     seekToken: videoSeekToken,
     snapshot: videoSnapshot,
   } = useVideoDanmaku(windowLabel === "main");
-  // 视频暂停时冻结屏幕上的弹幕；直播没有暂停概念，这里只对视频会话生效。
+  // 手动暂停才冻结视频弹幕；自然结束后继续排空片尾队列，让已发出的弹幕滚出屏幕。
+  const currentVideoProgress = videoProgress?.sessionId === videoSnapshot?.sessionId ? videoProgress : null;
   const videoPaused =
     videoSnapshot !== null &&
-    !(videoProgress?.playing ?? videoSnapshot.playing);
+    !(currentVideoProgress?.playing ?? videoSnapshot.playing) &&
+    !(currentVideoProgress?.finished ?? videoSnapshot.finished);
   const {
     enqueueLiveBatch,
     handleMockRateChange,
@@ -158,7 +161,7 @@ function App() {
     // 纯视频弹幕没有直播间会话；不告诉运行时会因为没有“直播源”而整条渲染循环不启动。
     videoActive: videoSnapshot !== null,
     videoPaused,
-    videoPositionMs: videoProgress?.positionMs ?? videoSnapshot?.positionMs ?? 0,
+    videoPositionMs: currentVideoProgress?.positionMs ?? videoSnapshot?.positionMs ?? 0,
     videoSeekToken,
     trackCount,
     windowLabel,
@@ -284,11 +287,16 @@ function App() {
 
     let disposed = false;
     let receivedConfigEvent = false;
+    const pendingRuntimeUpdates = new Map<string, LiveStatusUpdate>();
     const unlistenConfig = listen<AppConfig>("app-config-changed", (event) => {
       receivedConfigEvent = true;
       if (!disposed) {
         setConfig(mergeAppConfig(event.payload));
       }
+    });
+    const unlistenLiveStatus = listen<LiveStatusUpdate[]>("live-status-changed", (event) => {
+      for (const update of event.payload) pendingRuntimeUpdates.set(update.roomId, update);
+      if (!disposed) setConfig((current) => applyLiveStatusUpdates(current, event.payload));
     });
 
     void (async () => {
@@ -299,7 +307,7 @@ function App() {
 
       const loadedConfig = await invoke<AppConfig>("load_app_config");
       if (!disposed && !receivedConfigEvent) {
-        setConfig(mergeAppConfig(loadedConfig));
+        setConfig(applyLiveStatusUpdates(mergeAppConfig(loadedConfig), [...pendingRuntimeUpdates.values()]));
       }
     })();
 
@@ -339,6 +347,7 @@ function App() {
       void unlistenOnlineCount.then((unlisten) => unlisten());
       void unlistenEditMode.then((unlisten) => unlisten());
       void unlistenConfig.then((unlisten) => unlisten());
+      void unlistenLiveStatus.then((unlisten) => unlisten());
     };
   }, [windowLabel]);
 

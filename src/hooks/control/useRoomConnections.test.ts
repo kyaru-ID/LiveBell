@@ -291,3 +291,29 @@ test("temporary sessions match neither requested nor real saved room ids", () =>
 
   expect(result.current.temporarySessions).toEqual([sessions[2]]);
 });
+
+test("断开临时连接不影响已关注房间，单个失败不阻止其他断开", async () => {
+  const calls: Array<{ command: string; payload: unknown }> = [];
+  mockIPC((command, payload) => {
+    calls.push({ command, payload });
+    if ((payload as { sessionId?: string }).sessionId === "temporary-failed") throw new Error("断开失败");
+    return null;
+  });
+  const { result } = renderHook(() => useRoomConnections({
+    config: configWithSixSavedRooms(),
+    saveConfig: vi.fn(async () => undefined),
+    sessions: [
+      connectedSession("saved", 1),
+      { ...connectedSession("saved-alias", 70), roomId: 2 },
+      connectedSession("temporary-failed", 9),
+      { ...connectedSession("temporary-terminal", 10), status: "error" },
+    ],
+  }));
+  await act(() => result.current.disconnectTemporaryRooms());
+  expect(calls).toEqual([
+    { command: "disconnect_bilibili_room", payload: { sessionId: "temporary-failed" } },
+    { command: "disconnect_bilibili_room", payload: { sessionId: "temporary-terminal" } },
+  ]);
+  expect(result.current.commandErrors["temporary-failed"]).toContain("断开失败");
+  expect(result.current.commandErrors["temporary-terminal"]).toBeUndefined();
+});

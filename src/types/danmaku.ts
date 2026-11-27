@@ -20,6 +20,8 @@ export type LiveMessageSegment =
 export type DisplayMessageItem = {
   id: string;
   kind: LiveMessageKind;
+  /** 用于单独暂停视频弹幕，不影响同屏直播消息。 */
+  isVideo?: boolean;
   sourceLabel?: string;
   sourceColorIndex?: number;
   user?: string;
@@ -71,6 +73,7 @@ export type LiveMessage = {
 };
 
 export type QueuedLiveMessage = LiveMessage & {
+  isVideo?: boolean;
   attempts: number;
   followedUser?: boolean;
   highlighted?: boolean;

@@ -27,6 +27,9 @@ export function useVideoDanmaku(enabled: boolean) {
     }
 
     let disposed = false;
+    let receivedChanged = false;
+    let currentSessionId: string | null = null;
+    let lastPositionMs: number | null = null;
     const unlistenChanged = listen<VideoDanmakuSnapshot | null>(
       CHANGED_EVENT,
       (event) => {
@@ -34,13 +37,13 @@ export function useVideoDanmaku(enabled: boolean) {
           return;
         }
         const next = event.payload ?? null;
+        receivedChanged = true;
+        if (next?.sessionId !== currentSessionId) lastPositionMs = null;
+        currentSessionId = next?.sessionId ?? null;
         setSnapshot(next);
-        if (!next) {
-          setProgress(null);
-        }
+        setProgress((current) => current?.sessionId === next?.sessionId ? current : null);
       },
     );
-    let lastPositionMs: number | null = null;
     const unlistenProgress = listen<VideoDanmakuProgress>(
       PROGRESS_EVENT,
       (event) => {
@@ -48,6 +51,7 @@ export function useVideoDanmaku(enabled: boolean) {
           return;
         }
         const next = event.payload;
+        if (receivedChanged && next.sessionId !== currentSessionId) return;
         // 正常播放 200ms 才前进 200ms，一次跳超过 1.5 秒只可能是拖动进度条。
         if (
           lastPositionMs !== null &&
@@ -63,10 +67,13 @@ export function useVideoDanmaku(enabled: boolean) {
     // 窗口重新加载（比如换主题触发重载）时把已有会话捞回来。
     void (async () => {
       try {
+        await Promise.all([unlistenChanged, unlistenProgress]);
+        if (disposed) return;
         const current = await invoke<VideoDanmakuSnapshot | null>(
           "get_video_danmaku_state",
         );
-        if (!disposed && current) {
+        if (!disposed && !receivedChanged && current) {
+          currentSessionId = current.sessionId;
           setSnapshot(current);
         }
       } catch {

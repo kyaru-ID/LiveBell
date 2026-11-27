@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { DEFAULT_APP_CONFIG, type AppConfig } from "./types/config";
 import type { DanmakuRoomBatch, RoomSessionSnapshot } from "./types/roomSession";
+import type { VideoDanmakuSnapshot } from "./types/videoDanmaku";
 import App from "./App";
 
 const appThemeMock = vi.hoisted(() => ({ setTheme: vi.fn(async () => undefined) }));
@@ -150,6 +151,68 @@ afterEach(() => {
   document.documentElement.style.colorScheme = "";
   appThemeMock.setTheme.mockClear();
   windowMock.label = "main";
+});
+
+test.each(["video-danmaku-progress", "video-danmaku-changed"])(
+  "视频自然结束后仍显示片尾弹幕（%s）",
+  async (endEvent) => {
+    installIPC(Promise.resolve([]));
+    const { container } = render(<App />);
+    await waitForMainListeners();
+    await waitFor(() =>
+      expect(eventMock.handlers.has("video-danmaku-progress")).toBe(true),
+    );
+    vi.useFakeTimers();
+    const video: VideoDanmakuSnapshot = {
+      sessionId: "video:1:1", aid: 1, bvid: "BV1test", title: "测试视频",
+      cid: 1, pageIndex: 0, pageTitle: "", durationMs: 1000,
+      positionMs: 900, playing: true, rate: 1, looping: false,
+      finished: false, loading: false, pages: [],
+    };
+    await emitEvent("video-danmaku-changed", video);
+    await emitEvent("danmaku-messages", {
+      ...batch(video.sessionId, 1, "片尾最后一条"), sourceKind: "video",
+    });
+    await emitEvent(endEvent, {
+      ...video, positionMs: 1000, playing: false, finished: true,
+    });
+    // 后端片尾队列可能还会分批发送；结束后新到的批次也必须继续渲染。
+    await emitEvent("danmaku-messages", {
+      ...batch(video.sessionId, 1, "片尾后续批次"), sourceKind: "video",
+    });
+    await flushHorizontalScheduler();
+    expect(container.querySelector(".danmaku-layer")).toHaveAttribute("data-paused", "false");
+    expect(screen.getByText("片尾最后一条")).toBeInTheDocument();
+    expect(screen.getByText("片尾后续批次")).toBeInTheDocument();
+  },
+);
+
+test("视频手动暂停时直播弹幕继续显示，恢复后视频队列继续显示", async () => {
+  installIPC(Promise.resolve([connected("live:6", 6)]));
+  const { container } = render(<App />);
+  await waitForMainListeners();
+  await waitFor(() =>
+    expect(eventMock.handlers.has("video-danmaku-progress")).toBe(true),
+  );
+  vi.useFakeTimers();
+  const video: VideoDanmakuSnapshot = {
+    sessionId: "video:1:1", aid: 1, bvid: "BV1test", title: "测试视频",
+    cid: 1, pageIndex: 0, pageTitle: "", durationMs: 1000,
+    positionMs: 900, playing: false, rate: 1, looping: false,
+    finished: false, loading: false, pages: [],
+  };
+  await emitEvent("video-danmaku-changed", video);
+  await emitEvent("danmaku-messages", {
+    ...batch(video.sessionId, 1, "暂停的视频消息"), sourceKind: "video",
+  });
+  await emitEvent("danmaku-messages", batch("live:6", 6, "继续的直播消息"));
+  await flushHorizontalScheduler();
+  expect(container.querySelector(".danmaku-layer")).toHaveAttribute("data-paused", "true");
+  expect(screen.queryByText("暂停的视频消息")).not.toBeInTheDocument();
+  expect(screen.getByText("继续的直播消息")).toBeInTheDocument();
+  await emitEvent("video-danmaku-progress", { ...video, playing: true });
+  await flushHorizontalScheduler();
+  expect(screen.getByText("暂停的视频消息")).toBeInTheDocument();
 });
 
 test("long-lived App listener accepts room batches after readiness", async () => {

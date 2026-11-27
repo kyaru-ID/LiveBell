@@ -1,7 +1,7 @@
 {
   "name": "livebell",
   "private": true,
-  "version": "2.2.1",
+  "version": "2.2.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,8 @@
     "test:update-error-message": "node --test scripts/update-error-message.test.ts",
     "test:tauri-capability": "node --test scripts/tauri-capability.test.ts",
     "test:updater-script": "node --test scripts/updater-test.test.mjs",
+    "test:scripts": "npm run test:danmaku-runtime && npm run test:update-error-message && npm run test:tauri-capability && npm run test:updater-script",
+    "check": "npm run test:ui && npm run test:scripts && npm run build",
     "updater:test": "node scripts/updater-test.mjs",
     "tauri": "tauri"
   },

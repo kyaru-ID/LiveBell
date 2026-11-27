@@ -315,7 +315,7 @@ export function ControlPanel({
           <NotifySettings
             config={config}
             onUpdateNotification={(patch) =>
-              void saveConfig((current) => ({
+              saveConfig((current) => ({
                 ...current,
                 notification: { ...current.notification, ...patch },
               }))

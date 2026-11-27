@@ -1,10 +1,96 @@
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 use std::time::SystemTime;
 
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::EnvFilter;
+
+fn recent_logs(directory: &Path) -> Result<String, String> {
+    const MAX_BYTES: u64 = 1024 * 1024;
+    let mut files = fs::read_dir(directory)
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_type()
+                .map(|kind| kind.is_file())
+                .unwrap_or(false)
+        })
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name == "livebell.log" || name.starts_with("livebell.log.")
+        })
+        .collect::<Vec<_>>();
+    files.sort_by_key(|entry| std::cmp::Reverse(entry.file_name()));
+    let mut remaining_bytes = MAX_BYTES;
+    let mut remaining_lines = 500;
+    let mut blocks = Vec::new();
+    for entry in files.into_iter().take(3) {
+        if remaining_bytes == 0 || remaining_lines == 0 {
+            break;
+        }
+        let mut file = fs::File::open(entry.path()).map_err(|error| error.to_string())?;
+        let length = file.metadata().map_err(|error| error.to_string())?.len();
+        let offset = length.saturating_sub(remaining_bytes);
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|error| error.to_string())?;
+        let mut bytes = Vec::new();
+        file.take(remaining_bytes)
+            .read_to_end(&mut bytes)
+            .map_err(|error| error.to_string())?;
+        remaining_bytes -= bytes.len() as u64;
+        let content = String::from_utf8_lossy(&bytes);
+        let mut all_lines = content.lines();
+        if offset > 0 {
+            all_lines.next();
+        }
+        let mut lines: Vec<_> = all_lines.rev().take(remaining_lines).collect();
+        remaining_lines -= lines.len();
+        lines.reverse();
+        blocks.push(format!(
+            "--- {} ---\n{}",
+            entry.file_name().to_string_lossy(),
+            lines.join("\n")
+        ));
+    }
+    blocks.reverse();
+    Ok(if blocks.is_empty() {
+        "日志文件不存在\n".into()
+    } else {
+        blocks.join("\n")
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn diagnostics_reads_rolling_logs_and_limits_the_tail() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("livebell.log.2026-11-26"), "昨天\n").unwrap();
+        std::fs::write(
+            directory.path().join("livebell-diagnostics-old.txt"),
+            "不应包含",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("livebell.log.2026-11-27"),
+            (0..600)
+                .map(|index| format!("日志{index}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+        let logs = super::recent_logs(directory.path()).unwrap();
+        assert!(logs.contains("日志599"));
+        assert!(!logs.contains("日志99\n"));
+        assert!(!logs.contains("昨天"));
+        assert!(!logs.contains("不应包含"));
+        assert!(logs.lines().count() <= 501);
+    }
+}
 
 pub fn init(_app: &AppHandle) -> Result<(), String> {
     let log_dir = crate::portable::logs_dir()?;
@@ -78,27 +164,9 @@ pub fn export_diagnostics(app: AppHandle) -> Result<String, String> {
 
     // Log file
     output.push_str("=== 最近日志 ===\n");
-    let log_file = log_dir.join("livebell.log");
-    if log_file.exists() {
-        match fs::read_to_string(&log_file) {
-            Ok(content) => {
-                let trimmed: String = content
-                    .lines()
-                    .rev()
-                    .take(500)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                output.push_str(&trimmed);
-            }
-            Err(error) => {
-                output.push_str(&format!("日志读取失败：{}\n", error));
-            }
-        }
-    } else {
-        output.push_str("日志文件不存在\n");
+    match recent_logs(&log_dir) {
+        Ok(logs) => output.push_str(&logs),
+        Err(error) => output.push_str(&format!("日志读取失败：{error}\n")),
     }
     output.push_str("\n\n");
 

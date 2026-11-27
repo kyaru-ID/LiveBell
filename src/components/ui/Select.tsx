@@ -9,8 +9,8 @@ type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
 };
 
 const SIZE_CLASSES: Record<SelectSize, string> = {
-  sm: "min-h-7 px-2 text-[11px]",
-  md: "min-h-8 px-2.5 text-xs",
+  sm: "min-h-8 px-2.5 text-[12px]",
+  md: "min-h-9 px-3 text-[13px]",
 };
 
 export function Select({

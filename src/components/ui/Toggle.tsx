@@ -19,7 +19,7 @@ export function Toggle({
     <button
       aria-checked={checked}
       className={classNames(
-        "drift-toggle inline-flex h-[22px] w-[42px] shrink-0 cursor-pointer appearance-none items-center rounded-full border p-0.5 transition-colors",
+        "drift-toggle inline-flex h-6 w-[42px] shrink-0 cursor-pointer appearance-none items-center rounded-full border p-0.5 transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-drift-primary/25",
         "disabled:cursor-default disabled:opacity-45",
         checked
@@ -40,8 +40,8 @@ export function Toggle({
     >
       <span
         className={classNames(
-          "drift-toggle-thumb block size-[17px] rounded-full bg-white shadow-sm transition-transform",
-          checked ? "translate-x-5" : "translate-x-0",
+          "drift-toggle-thumb block size-[18px] rounded-full bg-white shadow-sm transition-transform",
+          checked ? "translate-x-[18px]" : "translate-x-0",
         )}
       />
     </button>

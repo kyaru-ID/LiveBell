@@ -208,6 +208,7 @@ export function useDanmakuRuntime({
   const bufferedBatchesRef = useRef<DanmakuRoomBatch[]>([]);
   // 播放位置每 200ms 变一次，走 ref 传给批次处理，避免刷新循环的 effect 反复重建。
   const videoPositionRef = useRef(videoPositionMs);
+  const videoPauseStartedRef = useRef<number | null>(null);
   videoPositionRef.current = videoPositionMs;
   const pausedRulesBySessionRef = useRef(new Map<string, Set<string>>());
   const roomSourcesRef = useRef(new Map<number, RoomSourceOption>());
@@ -270,7 +271,7 @@ export function useDanmakuRuntime({
   // 拖动进度条后清掉旧时间点的弹幕，但留着已经带上偏移量的回填弹幕。
   function clearVideoDisplayForSeek() {
     const keepBackfill = (message: QueuedLiveMessage) =>
-      (message.videoOffsetMs ?? 0) > 0;
+      !message.isVideo || (message.videoOffsetMs ?? 0) > 0;
     pendingMessagesRef.current =
       pendingMessagesRef.current.filter(keepBackfill);
     priorityMessagesRef.current =
@@ -278,7 +279,7 @@ export function useDanmakuRuntime({
     laneAvailableAtRef.current = [];
     sequenceRef.current = 0;
     const keptItems = liveItemsRef.current.filter(
-      (item) => (item.videoOffsetMs ?? 0) > 0,
+      (item) => !item.isVideo || (item.videoOffsetMs ?? 0) > 0,
     );
     liveItemsRef.current = keptItems;
     setLiveItems(keptItems);
@@ -460,18 +461,26 @@ export function useDanmakuRuntime({
 
   function dropExpiredPendingMessages(now: number) {
     pendingMessagesRef.current = pendingMessagesRef.current.filter(
-      (message) => now - message.queuedAt < MAX_REQUEUE_LATENCY_MS,
+      (message) => (videoPaused && message.isVideo) || now - message.queuedAt < MAX_REQUEUE_LATENCY_MS,
     );
   }
 
   function takePendingMessages(limit: number) {
-    const priorityMessages = priorityMessagesRef.current.splice(0, limit);
+    const takeEligible = (queue: QueuedLiveMessage[], count: number) => {
+      const result: QueuedLiveMessage[] = [];
+      for (let index = 0; index < queue.length && result.length < count;) {
+        if (videoPaused && queue[index].isVideo) { index += 1; continue; }
+        result.push(...queue.splice(index, 1));
+      }
+      return result;
+    };
+    const priorityMessages = takeEligible(priorityMessagesRef.current, limit);
     if (priorityMessages.length >= limit) {
       return priorityMessages;
     }
 
     return priorityMessages.concat(
-      pendingMessagesRef.current.splice(0, limit - priorityMessages.length),
+      takeEligible(pendingMessagesRef.current, limit - priorityMessages.length),
     );
   }
 
@@ -518,6 +527,7 @@ export function useDanmakuRuntime({
               ":" +
               displaySequenceRef.current++,
             sourceSessionId: batch.sessionId,
+            isVideo: true,
             sourceAnchorName: batch.anchorName,
             videoOffsetMs:
               offset > VIDEO_BACKFILL_THRESHOLD_MS ? offset : undefined,
@@ -676,6 +686,19 @@ export function useDanmakuRuntime({
     verticalRuntime.clear();
   }, [messageFlow]);
 
+  useLayoutEffect(() => {
+    const now = Date.now();
+    if (videoPaused) {
+      videoPauseStartedRef.current ??= now;
+    } else if (videoPauseStartedRef.current !== null) {
+      const elapsed = now - videoPauseStartedRef.current;
+      for (const message of [...pendingMessagesRef.current, ...priorityMessagesRef.current]) {
+        if (message.isVideo) message.queuedAt += elapsed;
+      }
+      videoPauseStartedRef.current = null;
+    }
+  }, [videoPaused]);
+
   const lastVideoSeekTokenRef = useRef(videoSeekToken);
   useEffect(() => {
     if (lastVideoSeekTokenRef.current === videoSeekToken) {
@@ -689,8 +712,6 @@ export function useDanmakuRuntime({
     if (
       windowLabel !== "main" ||
       messageFlow !== "horizontal" ||
-      // 视频暂停时不再往屏幕上铺新弹幕，恢复播放后继续。
-      videoPaused ||
       (!hasLiveSource && !mock.active)
     ) {
       return;
@@ -766,6 +787,7 @@ export function useDanmakuRuntime({
         nextItems.push({
           id: `${message.id}-${sequence}`,
           kind: message.kind,
+          isVideo: message.isVideo,
           sourceLabel: message.sourceLabel,
           sourceColorIndex: message.sourceColorIndex,
           user: message.user,

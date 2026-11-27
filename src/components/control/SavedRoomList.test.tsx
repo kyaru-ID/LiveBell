@@ -84,8 +84,10 @@ test("selects without connecting and keeps connect, edit, and delete callbacks",
   );
 
   await user.click(screen.getByRole("button", { name: "连接房间 123456" }));
-  await user.click(screen.getByRole("button", { name: "修改" }));
-  await user.click(screen.getByRole("button", { name: "删除" }));
+  await user.click(screen.getByRole("button", { name: "更多操作 深夜电台" }));
+  await user.click(screen.getByRole("menuitem", { name: "修改" }));
+  await user.click(screen.getByRole("button", { name: "更多操作 深夜电台" }));
+  await user.click(screen.getByRole("menuitem", { name: "取消关注" }));
 
   expect(callbacks.onConnectRoom).toHaveBeenCalledWith(ROOM);
   expect(callbacks.onStartEditRoom).toHaveBeenCalledWith(ROOM);
@@ -184,10 +186,15 @@ test("toggles follow enabled state and opens the live room", async () => {
   await user.click(screen.getByRole("switch", { name: "开播提醒 深夜电台" }));
   expect(callbacks.onToggleRoomEnabled).toHaveBeenCalledWith(ROOM, false);
 
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "打开直播间 123456" }));
   expect(vi.mocked(openExternalUrl)).toHaveBeenCalledWith(
     "https://live.bilibili.com/123456",
   );
+  expect(callbacks.onConnectRoom).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "更多操作 深夜电台" }));
+  expect(screen.getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual(["修改", "取消关注"]);
+  expect(screen.queryByRole("menuitem", { name: /打开直播间/ })).not.toBeInTheDocument();
 });
 
 test("keeps showing live state on a row without live reminders", () => {
@@ -268,4 +275,22 @@ test("moves a dragged room onto another row", () => {
   expect(callbacks.onMoveRoom).toHaveBeenCalledWith("room-1", "room-2");
   expect(callbacks.onDragRoomStart).toHaveBeenCalledWith("room-1");
   expect(callbacks.onDragRoomEnd).toHaveBeenCalled();
+});
+
+test("更多菜单支持键盘关闭、循环导航和点击外部关闭", async () => {
+  const user = userEvent.setup();
+  renderSavedRoomList([ROOM]);
+  const more = screen.getByRole("button", { name: "更多操作 深夜电台" });
+  await user.click(more);
+  expect(screen.getByRole("menuitem", { name: "修改" })).toHaveFocus();
+  await user.keyboard("{End}");
+  expect(screen.getByRole("menuitem", { name: "取消关注" })).toHaveFocus();
+  await user.keyboard("{ArrowDown}");
+  expect(screen.getByRole("menuitem", { name: "修改" })).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  expect(more).toHaveFocus();
+  await user.click(more);
+  await user.click(screen.getByRole("button", { name: "连接房间 123456" }));
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 });

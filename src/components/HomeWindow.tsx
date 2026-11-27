@@ -109,16 +109,16 @@ export function HomeWindow({ config, onConfigChange }: HomeWindowProps) {
     snapshotError;
 
   return (
-    <div className="drift-control-shell drift-theme-transition flex h-screen w-screen flex-col bg-[var(--drift-ui-workspace)] text-[var(--drift-ui-ink)]">
-      <header className="flex items-center gap-3 border-b border-[var(--drift-ui-line)] bg-[var(--drift-ui-raised)] px-6 py-[11px] shadow-[0_1px_0_var(--drift-ui-line)]">
+    <div className="drift-control-shell drift-home-shell drift-theme-transition flex h-screen w-screen flex-col bg-[var(--drift-ui-workspace)] text-[var(--drift-ui-ink)]">
+      <header className="flex flex-wrap items-center gap-3 border-b border-[var(--drift-ui-line)] bg-[var(--drift-ui-raised)] px-6 py-4 max-[519px]:px-4">
         <AppLogo size={36} />
         <div className="min-w-0 flex-1">
-          <div className="text-[16px] font-bold leading-tight">LiveBell</div>
-          <div className="text-[11px] text-[var(--drift-ui-muted)]">
+          <div className="text-[18px] font-bold leading-tight">LiveBell</div>
+          <div className="mt-1 text-[12px] text-[var(--drift-ui-muted)]">
             主播开播提醒与弹幕悬浮窗
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 max-[519px]:w-full">
           <Button
             onClick={() => void openControlWindow(NOTIFICATIONS_TAB)}
             size="sm"
@@ -146,11 +146,11 @@ export function HomeWindow({ config, onConfigChange }: HomeWindowProps) {
         </div>
       </header>
 
-      <div className="grid min-h-0 min-w-0 flex-1 content-start gap-3 overflow-y-auto overflow-x-hidden px-6 py-4">
+      <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-y-auto overflow-x-hidden px-6 py-5 max-[519px]:px-4">
         <ConnectPanel
           commandErrors={connections.commandErrors}
           onAddToSaved={(roomId) => rooms.saveRoom(roomId)}
-          onDisconnectAll={connections.disconnectAllRooms}
+          onDisconnectAll={connections.disconnectTemporaryRooms}
           onDisconnectSession={connections.disconnectSession}
           temporarySessions={connections.temporarySessions}
         />
@@ -248,7 +248,7 @@ export function HomeWindow({ config, onConfigChange }: HomeWindowProps) {
         )}
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-[var(--drift-ui-line)] bg-[var(--drift-ui-surface)] px-6 py-2 text-[12px] text-[var(--drift-ui-muted)]">
+      <footer className="flex flex-wrap items-center gap-2 border-t border-[var(--drift-ui-line)] bg-[var(--drift-ui-surface)] px-6 py-2.5 text-[12px] text-[var(--drift-ui-muted)] max-[519px]:px-4">
         <span className="h-[7px] w-[7px] rounded-full bg-[var(--drift-ui-success)]" />
         <span>
           共 {config.savedRooms.length} 个关注 · 开提醒 {enabledCount} 个 · 已连接{" "}

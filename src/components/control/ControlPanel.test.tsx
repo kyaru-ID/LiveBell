@@ -1,5 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { DEFAULT_APP_CONFIG, type AppConfig } from "../../types/config";
@@ -102,6 +102,28 @@ test("passes runtime warnings to the filter page", async () => {
 
 afterEach(() => {
   clearMocks();
+});
+
+test("通知页等待真实配置保存，失败时显示错误而不假报成功", async () => {
+  let rejectSave!: (reason: Error) => void;
+  const save = new Promise<never>((_resolve, reject) => { rejectSave = reject; });
+  mockIPC((command) => {
+    if (command === "auth_get_status") return { isLoggedIn: false };
+    if (command === "get_filter_runtime_status") return { rooms: [] };
+    if (command === "get_danmaku_recording_status") return EMPTY_DANMAKU_RECORDING_STATUS;
+    if (command === "save_app_config") return save;
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  const user = userEvent.setup();
+  const onConfigChange = vi.fn();
+  render(<ControlPanel config={{ ...DEFAULT_APP_CONFIG, update: { checkOnStartup: false } }} onConfigChange={onConfigChange} />);
+  await user.click(screen.getByRole("button", { name: "保存检测间隔" }));
+  expect(screen.getByRole("status")).toHaveTextContent("正在保存");
+  expect(screen.queryByText(/开播检测间隔已保存/)).not.toBeInTheDocument();
+  await act(async () => { rejectSave(new Error("磁盘写入失败")); await save.catch(() => undefined); });
+  expect(await screen.findByRole("alert")).toHaveTextContent("磁盘写入失败");
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  expect(onConfigChange).not.toHaveBeenCalled();
 });
 
 test("switches existing pages through the new control shell", async () => {
@@ -215,6 +237,11 @@ test("persists light theme from the header action", async () => {
   expect(commands).toContainEqual({
     command: "save_app_config",
     payload: {
+      baseConfig: {
+        ...DEFAULT_APP_CONFIG,
+        appearance: { ...DEFAULT_APP_CONFIG.appearance, theme: "dark" },
+        update: { checkOnStartup: false },
+      },
       config: {
         ...DEFAULT_APP_CONFIG,
         appearance: { ...DEFAULT_APP_CONFIG.appearance, theme: "light" },

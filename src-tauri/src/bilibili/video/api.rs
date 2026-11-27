@@ -98,7 +98,10 @@ fn page_from_query(raw: &str) -> Option<u32> {
 
 fn parse_bvid_candidate(candidate: &str) -> Option<String> {
     let trimmed = candidate.trim();
-    if trimmed.len() != 12 || !trimmed[..2].eq_ignore_ascii_case("bv") {
+    if trimmed.len() != 12
+        || !trimmed.is_ascii()
+        || !trimmed.as_bytes()[..2].eq_ignore_ascii_case(b"bv")
+    {
         return None;
     }
     if !trimmed
@@ -204,10 +207,7 @@ async fn follow_redirect(url: &str) -> Result<String, String> {
     } else {
         format!("https://{url}")
     };
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(6))
-        .build()
-        .map_err(|error| format!("短链解析客户端初始化失败：{error}"))?;
+    let client = crate::http_client::client()?;
     let response = client
         .get(&url)
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -243,7 +243,7 @@ struct ViewPageData {
 }
 
 async fn fetch_view(video: &VideoRef) -> Result<VideoInfo, String> {
-    let client = reqwest::Client::new();
+    let client = crate::http_client::client()?;
     let mut request = client
         .get(VIEW_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
@@ -353,7 +353,7 @@ async fn request_seg(
     params: &[(String, String)],
     cookie: &str,
 ) -> Result<Vec<u8>, String> {
-    let mut request = reqwest::Client::new()
+    let mut request = crate::http_client::client()?
         .get(url)
         .header(ACCEPT, "*/*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -361,17 +361,23 @@ async fn request_seg(
     if !cookie.is_empty() {
         request = request.header(COOKIE, cookie);
     }
-    let response = request
+    let mut response = request
         .query(params)
         .send()
         .await
         .map_err(|error| format!("视频弹幕分段请求失败：{error}"))?;
     let status = response.status();
-    let bytes = response
-        .bytes()
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
         .map_err(|error| format!("视频弹幕分段读取失败：{error}"))?
-        .to_vec();
+    {
+        if bytes.len().saturating_add(chunk.len()) > 8 * 1024 * 1024 {
+            return Err("视频弹幕分段超过 8 MiB 安全上限".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
     if !status.is_success() && !is_protobuf(&bytes) {
         return Err(format!(
             "视频弹幕分段 HTTP {}：{}",
@@ -461,8 +467,14 @@ mod tests {
 
     #[test]
     fn parses_av_and_plain_aid() {
-        assert_eq!(parse_video_input("av810872").expect("parse").aid, Some(810872));
-        assert_eq!(parse_video_input("810872").expect("parse").aid, Some(810872));
+        assert_eq!(
+            parse_video_input("av810872").expect("parse").aid,
+            Some(810872)
+        );
+        assert_eq!(
+            parse_video_input("810872").expect("parse").aid,
+            Some(810872)
+        );
         assert_eq!(
             parse_video_input("  AV170001 ").expect("parse").aid,
             Some(170001)
@@ -496,6 +508,16 @@ mod tests {
         assert!(parse_video_input("").is_err());
         assert!(parse_video_input("hello world").is_err());
         assert!(parse_video_input("BV123").is_err());
+        for input in [
+            "这是测试",
+            "😀😀😀",
+            "中abcdefghi",
+            "https://www.bilibili.com/video/这是测试",
+        ] {
+            assert!(parse_video_input(input)
+                .map(|video| !video.is_usable())
+                .unwrap_or(true));
+        }
     }
 
     #[test]

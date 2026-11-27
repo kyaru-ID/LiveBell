@@ -243,6 +243,7 @@ export function StreamerDialogWindow() {
 
       const saved = await invoke<AppConfig>("save_app_config", {
         config: { ...loaded, savedRooms },
+        baseConfig: loaded,
       });
       setConfig(saved);
       await invoke("hide_streamer_dialog_window");
@@ -263,6 +264,7 @@ export function StreamerDialogWindow() {
     try {
       const loaded = await invoke<AppConfig>("load_app_config");
       const saved = await invoke<AppConfig>("save_app_config", {
+        baseConfig: loaded,
         config: {
           ...loaded,
           savedRooms: loaded.savedRooms.filter((room) => room.id !== editingId),

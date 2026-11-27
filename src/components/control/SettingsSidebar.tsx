@@ -30,12 +30,12 @@ export function SettingsSidebar({
         )}
       >
         {/* 侧栏顶部不再重复应用名：窗口标题栏已经写了「LiveBell 设置」，这里再放一遍纯属冗余（用户要求去掉）。 */}
-        <nav aria-label="设置分类" className="min-h-0 flex-1">
+        <nav aria-label="设置分类" className="settings-scroll-list min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
           {SETTINGS_NAV_GROUPS.map((group) => (
             <div className="mb-2" key={group.label}>
               <p
                 className={classNames(
-                  "drift-theme-transition mb-1 mt-0 px-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-[var(--drift-ui-disabled)] max-[619px]:sr-only",
+                  "drift-theme-transition mb-1 mt-0 px-2 text-[11px] font-semibold text-[var(--drift-ui-muted)] max-[619px]:sr-only",
                   hideLabels && "sr-only",
                 )}
               >
@@ -51,7 +51,7 @@ export function SettingsSidebar({
                         aria-current={active ? "page" : undefined}
                         aria-label={item.label}
                         className={classNames(
-                          "drift-theme-transition relative flex min-h-7 w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 text-left text-[10px] text-[var(--drift-ui-muted)] hover:bg-[var(--drift-ui-hover)] hover:text-drift-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-drift-signal/45 max-[619px]:justify-center max-[619px]:px-0",
+                          "drift-theme-transition relative flex min-h-9 w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2 text-left text-[13px] text-[var(--drift-ui-muted)] hover:bg-[var(--drift-ui-hover)] hover:text-drift-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-drift-signal/45 max-[619px]:justify-center max-[619px]:px-0",
                           active && "bg-[var(--drift-ui-selected)] text-drift-ink",
                         )}
                         onClick={() => onTabChange(item.id)}
@@ -60,7 +60,7 @@ export function SettingsSidebar({
                         {active ? (
                           <span className="drift-theme-transition absolute -left-2 h-4 w-0.5 rounded-full bg-drift-signal shadow-[0_0_9px_color-mix(in_srgb,var(--drift-ui-signal)_55%,transparent)] max-[619px]:-left-1.5" />
                         ) : null}
-                        <Icon aria-hidden="true" size={14} strokeWidth={1.7} />
+                        <Icon aria-hidden="true" size={16} strokeWidth={1.7} />
                         <span
                           className={classNames(
                             "max-[619px]:sr-only",

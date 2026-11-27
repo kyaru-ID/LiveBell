@@ -32,7 +32,7 @@ pub(crate) fn parse_anchor_fan_medal_name(
 
 pub(crate) async fn fetch_anchor_fan_medal_name(uid: u64) -> Result<Option<String>, String> {
     debug!(target: "livebell::bilibili.http", anchor_uid = uid, "requesting anonymous anchor fan medal metadata");
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(MASTER_INFO_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -56,7 +56,7 @@ pub(crate) async fn fetch_anchor_fan_medal_name(uid: u64) -> Result<Option<Strin
 
 pub(crate) async fn fetch_room_info(room_id: u64, cookie: &str) -> Result<RoomInfoByRoom, String> {
     debug!(target: "livebell::bilibili.http", room_id, "requesting room info");
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(ROOM_INFO_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -160,7 +160,7 @@ pub(crate) async fn fetch_room_base_anchor_name(
     cookie: &str,
 ) -> Result<String, String> {
     debug!(target: "livebell::bilibili.http", room_id, "requesting room base info");
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(ROOM_BASE_INFO_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -231,7 +231,7 @@ pub(crate) async fn fetch_danmu_info_with_params(
     wbi_params: &[(String, String)],
 ) -> Result<DanmuInfo, String> {
     debug!(target: "livebell::bilibili.http", room_id, "requesting getDanmuInfo");
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(DANMU_INFO_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -326,7 +326,7 @@ pub(crate) fn build_wbi_params_with_mixin_key(
 
 pub(crate) async fn fetch_wbi_mixin_key(cookie: &str) -> Result<String, String> {
     debug!(target: "livebell::bilibili.http", "requesting WBI nav keys");
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(NAV_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -371,7 +371,7 @@ pub(crate) async fn fetch_wbi_mixin_key(cookie: &str) -> Result<String, String> 
 
 pub(crate) async fn fetch_room_init(room_id: u64) -> Result<RoomInitData, String> {
     debug!(target: "livebell::bilibili.http", room_id, "requesting room_init");
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(ROOM_INIT_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -418,7 +418,7 @@ pub(crate) async fn fetch_room_init(room_id: u64) -> Result<RoomInitData, String
 
 pub(crate) async fn fetch_anchor_name(uid: u64, cookie: &str) -> Result<String, String> {
     debug!(target: "livebell::bilibili.http", anchor_uid = uid, "requesting anchor profile");
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(SPACE_INFO_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -470,7 +470,7 @@ pub(crate) async fn fetch_anchor_name(uid: u64, cookie: &str) -> Result<String, 
 
 pub(crate) async fn fetch_buvid() -> Result<DeviceCookie, String> {
     debug!(target: "livebell::bilibili.http", "requesting anonymous buvid");
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(BUVID_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)

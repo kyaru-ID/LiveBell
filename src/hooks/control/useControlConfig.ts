@@ -29,9 +29,11 @@ export function useControlConfig({
 
   function saveConfig(updater: AppConfigUpdater) {
     const operation = saveQueueRef.current.then(async () => {
-      const nextConfig = updater(latestConfigRef.current);
+      const baseConfig = latestConfigRef.current;
+      const nextConfig = updater(baseConfig);
       const savedConfig = await invoke<AppConfig>("save_app_config", {
         config: nextConfig,
+        baseConfig,
       });
       latestConfigRef.current = savedConfig;
       onConfigChangeRef.current(savedConfig);

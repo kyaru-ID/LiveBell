@@ -1,7 +1,9 @@
 mod app_config;
 mod autostart;
 mod bilibili;
+mod config_merge;
 mod external_open;
+mod http_client;
 mod instance_id;
 mod launch_args;
 mod legacy_migration;
@@ -63,6 +65,7 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .manage(app_config::AppConfigState::default())
         .manage(bilibili::room_manager::RoomConnectionManager::default())
         .manage(bilibili::filter_runtime::FilterRuntimeState::default())
         .manage(bilibili::send::SendDanmakuState::default())
@@ -71,7 +74,7 @@ pub fn run() {
         .manage(window_control::EditModeState::default())
         .manage(window_control::StreamerDialogTarget::default())
         .manage(notifications::NotificationHistoryState::default())
-    .manage(bilibili::video::VideoDanmakuState::default())
+        .manage(bilibili::video::VideoDanmakuState::default())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())

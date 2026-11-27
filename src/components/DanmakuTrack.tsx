@@ -28,6 +28,7 @@ export function DanmakuTrack({
     item.followedUser ? "is-followed" : "",
     item.highlighted ? "is-highlighted" : "",
     item.isSelf ? "is-self" : "",
+    item.isVideo ? "is-video" : "",
   ]
     .filter(Boolean)
     .join(" ");

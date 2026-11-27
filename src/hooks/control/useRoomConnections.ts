@@ -148,6 +148,12 @@ export function useRoomConnections({
     await runCommand("all", "disconnect_all_bilibili_rooms");
   }
 
+  async function disconnectTemporaryRooms() {
+    await Promise.all(temporarySessions.map((session) =>
+      disconnectSession(session.sessionId),
+    ));
+  }
+
   async function retrySession(session: RoomSessionSnapshot) {
     setCommandError(session.sessionId, "");
     try {
@@ -191,6 +197,7 @@ export function useRoomConnections({
     connectSelectedRooms,
     disconnectSession,
     disconnectAllRooms,
+    disconnectTemporaryRooms,
     retrySession,
     setRoomSelected,
     selectedSavedRoomIds,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AppConfig, NotificationConfig } from "../../types/config";
 import { Button, Input, Toggle } from "../ui";
@@ -11,7 +11,7 @@ import {
 
 type NotifySettingsProps = {
   config: AppConfig;
-  onUpdateNotification: (patch: Partial<NotificationConfig>) => void;
+  onUpdateNotification: (patch: Partial<NotificationConfig>) => void | Promise<void>;
 };
 
 type LiveStatusUpdate = {
@@ -34,6 +34,30 @@ export function NotifySettings({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [savingField, setSavingField] = useState<string | null>(null);
+  const savingRef = useRef(false);
+
+  async function persistNotification(
+    patch: Partial<NotificationConfig>,
+    field: string,
+    successMessage: string,
+  ) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSavingField(field);
+    setError(null);
+    setMessage("正在保存设置…");
+    try {
+      await onUpdateNotification(patch);
+      setMessage(successMessage);
+    } catch (saveError) {
+      setMessage(null);
+      setError(`保存失败，请重试：${saveError instanceof Error ? saveError.message : String(saveError)}`);
+    } finally {
+      savingRef.current = false;
+      setSavingField(null);
+    }
+  }
 
   function parseClamped(value: string, min: number, max: number, fallback: number) {
     const parsed = Number.parseInt(value, 10);
@@ -51,9 +75,11 @@ export function NotifySettings({
       notification.monitorIntervalSeconds,
     );
     setDraftInterval(String(next));
-    onUpdateNotification({ monitorIntervalSeconds: next });
-    setMessage(`开播检测间隔已保存：${next} 秒`);
-    setError(null);
+    void persistNotification(
+      { monitorIntervalSeconds: next },
+      "interval",
+      `开播检测间隔已保存：${next} 秒`,
+    );
   }
 
   function saveDuration() {
@@ -64,9 +90,11 @@ export function NotifySettings({
       notification.notificationDurationSeconds,
     );
     setDraftDuration(String(next));
-    onUpdateNotification({ notificationDurationSeconds: next });
-    setMessage(`提醒停留时长已保存：${next} 秒`);
-    setError(null);
+    void persistNotification(
+      { notificationDurationSeconds: next },
+      "duration",
+      `提醒停留时长已保存：${next} 秒`,
+    );
   }
 
   async function testNotification() {
@@ -103,8 +131,9 @@ export function NotifySettings({
       >
         <SettingsRow
           control={
-            <div className="grid min-w-[220px] grid-cols-[minmax(0,1fr)_64px] gap-2 max-[519px]:min-w-0">
+            <div className="grid min-w-[220px] grid-cols-[minmax(0,1fr)_80px] gap-2 max-[519px]:min-w-0">
               <Input
+                disabled={savingField !== null}
                 id="notify-interval-input"
                 inputMode="numeric"
                 max={60}
@@ -113,7 +142,9 @@ export function NotifySettings({
                 type="number"
                 value={draftInterval}
               />
-              <Button onClick={saveInterval}>保存</Button>
+              <Button aria-label="保存检测间隔" disabled={savingField !== null} onClick={saveInterval}>
+                {savingField === "interval" ? "保存中…" : "保存"}
+              </Button>
             </div>
           }
           description="检测间隔，单位秒（2 - 60）"
@@ -122,8 +153,9 @@ export function NotifySettings({
         />
         <SettingsRow
           control={
-            <div className="grid min-w-[220px] grid-cols-[minmax(0,1fr)_64px] gap-2 max-[519px]:min-w-0">
+            <div className="grid min-w-[220px] grid-cols-[minmax(0,1fr)_80px] gap-2 max-[519px]:min-w-0">
               <Input
+                disabled={savingField !== null}
                 id="notify-duration-input"
                 inputMode="numeric"
                 max={60}
@@ -132,7 +164,9 @@ export function NotifySettings({
                 type="number"
                 value={draftDuration}
               />
-              <Button onClick={saveDuration}>保存</Button>
+              <Button aria-label="保存停留时长" disabled={savingField !== null} onClick={saveDuration}>
+                {savingField === "duration" ? "保存中…" : "保存"}
+              </Button>
             </div>
           }
           description="软件内提醒自动消失的时间，单位秒（1 - 60）"
@@ -143,9 +177,10 @@ export function NotifySettings({
           control={
             <Toggle
               aria-label="提醒声音"
+              disabled={savingField !== null}
               checked={notification.soundEnabled}
               onCheckedChange={(checked) =>
-                onUpdateNotification({ soundEnabled: checked })
+                void persistNotification({ soundEnabled: checked }, "sound", "提醒声音设置已保存")
               }
             />
           }
@@ -156,9 +191,10 @@ export function NotifySettings({
           control={
             <Toggle
               aria-label="软件弹窗"
+              disabled={savingField !== null}
               checked={notification.popupEnabled}
               onCheckedChange={(checked) =>
-                onUpdateNotification({ popupEnabled: checked })
+                void persistNotification({ popupEnabled: checked }, "popup", "软件弹窗设置已保存")
               }
             />
           }
@@ -169,9 +205,10 @@ export function NotifySettings({
           control={
             <Toggle
               aria-label="Windows 系统通知"
+              disabled={savingField !== null}
               checked={notification.windowsToastEnabled}
               onCheckedChange={(checked) =>
-                onUpdateNotification({ windowsToastEnabled: checked })
+                void persistNotification({ windowsToastEnabled: checked }, "toast", "系统通知设置已保存")
               }
             />
           }
@@ -182,9 +219,10 @@ export function NotifySettings({
           control={
             <Toggle
               aria-label="点击提醒时自动连接弹幕"
+              disabled={savingField !== null}
               checked={notification.autoConnectOnClick}
               onCheckedChange={(checked) =>
-                onUpdateNotification({ autoConnectOnClick: checked })
+                void persistNotification({ autoConnectOnClick: checked }, "autoConnect", "点击连弹幕设置已保存")
               }
             />
           }
@@ -195,9 +233,10 @@ export function NotifySettings({
           control={
             <Toggle
               aria-label="显示已开播时长"
+              disabled={savingField !== null}
               checked={notification.showLiveDuration}
               onCheckedChange={(checked) =>
-                onUpdateNotification({ showLiveDuration: checked })
+                void persistNotification({ showLiveDuration: checked }, "durationBadge", "开播时长显示设置已保存")
               }
             />
           }
@@ -224,7 +263,7 @@ export function NotifySettings({
       </SettingsSection>
 
       {message ? (
-        <StatusBanner description={message} title="已完成" tone="success" />
+        <StatusBanner description={message} title={savingField ? "保存中" : "已完成"} tone={savingField ? "neutral" : "success"} />
       ) : null}
 
       {error ? (

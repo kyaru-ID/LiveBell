@@ -1,12 +1,16 @@
 use std::{
     collections::HashSet,
     fs,
+    io::Write,
     path::{Path, PathBuf},
-    sync::{LazyLock, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        LazyLock, Mutex,
+    },
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const APP_CONFIG_FILE: &str = "app-config.json";
 pub const LIVE_STATE_UNKNOWN: &str = "unknown";
@@ -29,6 +33,12 @@ const UNGROUPED_SAVED_ROOM_GROUP_ID: &str = "uncategorized";
 const DEPRECATED_FILTER_TARGETS: [&str; 4] =
     ["commentText", "messageType", "giftName", "guardLevel"];
 static APP_CONFIG_WRITE_GATE: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Default)]
+pub(crate) struct AppConfigState {
+    current: Mutex<Option<AppConfig>>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -437,10 +447,24 @@ pub fn load_app_config(app: AppHandle) -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
-pub fn save_app_config(app: AppHandle, config: AppConfig) -> Result<AppConfig, String> {
-    let config = update_app_config_atomically(&app, move |current, latest| {
-        *current = config;
-        preserve_authority_owned_sections(current, latest);
+pub fn save_app_config(
+    app: AppHandle,
+    config: AppConfig,
+    base_config: AppConfig,
+) -> Result<AppConfig, String> {
+    let config = mutate_app_config(&app, true, true, move |current, latest| {
+        let mut desired = config;
+        let mut base = base_config;
+        preserve_authority_owned_sections(&mut desired, latest);
+        preserve_authority_owned_sections(&mut base, latest);
+        let merged = crate::config_merge::merge(
+            &serde_json::to_value(latest).map_err(|error| error.to_string())?,
+            &serde_json::to_value(base).map_err(|error| error.to_string())?,
+            &serde_json::to_value(desired).map_err(|error| error.to_string())?,
+            "config",
+        )?;
+        *current = serde_json::from_value(merged).map_err(|error| error.to_string())?;
+        Ok(())
     })?;
     tracing::info!(
         target: "livebell::config",
@@ -463,11 +487,29 @@ pub fn set_last_send_room_id(app: AppHandle, room_id: Option<u64>) -> Result<App
 }
 
 pub fn read_app_config(app: &AppHandle) -> Result<AppConfig, String> {
+    let _guard = APP_CONFIG_WRITE_GATE
+        .lock()
+        .map_err(|error| error.to_string())?;
+    read_current_config(app)
+}
+
+// 调用方持有写入锁；运行状态直接从内存读，避免每次轮询都访问文件。
+fn read_current_config(app: &AppHandle) -> Result<AppConfig, String> {
+    if let Some(state) = app.try_state::<AppConfigState>() {
+        if let Some(config) = state
+            .current
+            .lock()
+            .map_err(|error| error.to_string())?
+            .as_ref()
+        {
+            return Ok(config.clone());
+        }
+    }
     let path = app_config_path(app)?;
     let mut config = read_app_config_from_path(&path)?;
     let removed_filter_rule_count = normalize_loaded_app_config(&mut config);
     if removed_filter_rule_count > 0 {
-        if let Err(error) = persist_normalized_config_to_path_if_needed(&path) {
+        if let Err(error) = write_app_config_to_path(&path, &config) {
             tracing::warn!(
                 target: "livebell::config",
                 removed_filter_rule_count,
@@ -476,7 +518,15 @@ pub fn read_app_config(app: &AppHandle) -> Result<AppConfig, String> {
             );
         }
     }
+    cache_config(app, &config)?;
     Ok(config)
+}
+
+fn cache_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
+    if let Some(state) = app.try_state::<AppConfigState>() {
+        *state.current.lock().map_err(|error| error.to_string())? = Some(config.clone());
+    }
+    Ok(())
 }
 
 pub fn update_auth_config(app: &AppHandle, auth: AuthConfig) -> Result<AppConfig, String> {
@@ -498,17 +548,72 @@ fn app_config_path(_app: &AppHandle) -> Result<PathBuf, String> {
     crate::portable::data_root().map(|path| path.join(APP_CONFIG_FILE))
 }
 
-pub(crate) fn update_app_config_atomically<F>(app: &AppHandle, mutate: F) -> Result<AppConfig, String>
+pub(crate) fn update_app_config_atomically<F>(
+    app: &AppHandle,
+    mutate: F,
+) -> Result<AppConfig, String>
 where
     F: FnOnce(&mut AppConfig, &AppConfig),
 {
-    let path = app_config_path(app)?;
-    update_app_config_path_atomically(&path, mutate, |config| {
-        app.emit("app-config-changed", config)
-            .map_err(|error| error.to_string())
+    mutate_app_config(app, true, true, |config, latest| {
+        mutate(config, latest);
+        Ok(())
     })
 }
 
+/// 高频直播状态在内存更新，仅开播/下播等关键跃迁落盘，避免重启后重复提醒。
+pub(crate) fn update_live_runtime<F>(app: &AppHandle, mutate: F) -> Result<AppConfig, String>
+where
+    F: FnOnce(&mut AppConfig, &AppConfig),
+{
+    mutate_app_config(app, false, false, |config, latest| {
+        mutate(config, latest);
+        Ok(())
+    })
+}
+
+fn mutate_app_config<F>(
+    app: &AppHandle,
+    persist: bool,
+    emit: bool,
+    mutate: F,
+) -> Result<AppConfig, String>
+where
+    F: FnOnce(&mut AppConfig, &AppConfig) -> Result<(), String>,
+{
+    let _guard = APP_CONFIG_WRITE_GATE
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let mut config = read_current_config(app)?;
+    let latest = config.clone();
+    mutate(&mut config, &latest)?;
+    normalize_loaded_app_config(&mut config);
+    if persist || has_live_transition(&latest, &config) {
+        write_app_config_to_path(&app_config_path(app)?, &config)?;
+    }
+    cache_config(app, &config)?;
+    // 持久化成功后，广播失败不应让客户端误判保存失败并重复提交。
+    if emit {
+        if let Err(error) = app.emit("app-config-changed", &config) {
+            tracing::warn!(target: "livebell::config", %error, "配置已保存，但广播失败");
+        }
+    }
+    Ok(config)
+}
+
+fn has_live_transition(previous: &AppConfig, next: &AppConfig) -> bool {
+    next.saved_rooms.iter().any(|room| {
+        previous
+            .saved_rooms
+            .iter()
+            .find(|old| old.id == room.id)
+            .is_some_and(|old| {
+                old.live_state != room.live_state || old.live_started_at != room.live_started_at
+            })
+    })
+}
+
+#[cfg(test)]
 fn update_app_config_path_atomically<F, E>(
     path: &Path,
     mutate: F,
@@ -531,29 +636,24 @@ where
 }
 
 fn read_app_config_from_path(path: &Path) -> Result<AppConfig, String> {
-    if !path.exists() {
-        let mut config = AppConfig::default();
-        let _ = normalize_loaded_app_config(&mut config);
-        return Ok(config);
+    let read = |path: &Path| -> Result<AppConfig, String> {
+        let content = fs::read(path).map_err(|error| error.to_string())?;
+        serde_json::from_slice(&content).map_err(|error| error.to_string())
+    };
+    match read(path) {
+        Ok(config) => Ok(config),
+        Err(error) => {
+            let backup = path.with_extension("json.bak");
+            if let Ok(config) = read(&backup) {
+                tracing::warn!(target: "livebell::config", %error, "配置读取失败，已从备份恢复");
+                return Ok(config);
+            }
+            if !path.exists() && !backup.exists() {
+                return Ok(AppConfig::default());
+            }
+            Err(format!("配置与备份均无法读取：{error}"))
+        }
     }
-
-    let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&content).map_err(|error| error.to_string())
-}
-
-fn persist_normalized_config_to_path_if_needed(path: &Path) -> Result<(), String> {
-    let _guard = APP_CONFIG_WRITE_GATE
-        .lock()
-        .map_err(|error| format!("配置写入锁获取失败：{error}"))?;
-    if !path.exists() {
-        return Ok(());
-    }
-
-    let mut config = read_app_config_from_path(path)?;
-    if normalize_loaded_app_config(&mut config) == 0 {
-        return Ok(());
-    }
-    write_app_config_to_path(path, &config)
 }
 
 fn write_app_config_to_path(path: &Path, config: &AppConfig) -> Result<(), String> {
@@ -562,7 +662,35 @@ fn write_app_config_to_path(path: &Path, config: &AppConfig) -> Result<(), Strin
     }
 
     let content = serde_json::to_string_pretty(config).map_err(|error| error.to_string())?;
-    fs::write(path, content).map_err(|error| error.to_string())
+    // 仅备份合法的上一份配置，恢复后的首次保存不会用损坏文件覆盖好备份。
+    if let Ok(previous) = fs::read(path) {
+        if serde_json::from_slice::<AppConfig>(&previous).is_ok() {
+            atomic_write(&path.with_extension("json.bak"), &previous)?;
+        }
+    }
+    atomic_write(path, content.as_bytes())
+}
+
+fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
+    let temp = path.with_extension(format!(
+        "{}.{}.tmp",
+        std::process::id(),
+        TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| -> std::io::Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
+        file.write_all(content)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result.map_err(|error| format!("配置原子写入失败：{error}"))
 }
 
 fn preserve_authority_owned_sections(config: &mut AppConfig, latest: &AppConfig) {
@@ -575,6 +703,7 @@ fn preserve_authority_owned_sections(config: &mut AppConfig, latest: &AppConfig)
             room.avatar_path = source.avatar_path.clone();
             room.live_state = source.live_state.clone();
             room.live_title = source.live_title.clone();
+            room.live_started_at = source.live_started_at.clone();
             room.last_checked_at = source.last_checked_at.clone();
             room.last_error = source.last_error.clone();
         }
@@ -769,6 +898,96 @@ mod tests {
 
     fn test_config_path() -> std::path::PathBuf {
         tempdir().expect("tempdir").keep().join(APP_CONFIG_FILE)
+    }
+
+    #[test]
+    fn only_live_transitions_need_runtime_persistence() {
+        let previous: AppConfig = serde_json::from_value(
+            json!({"savedRooms":[{"id":"a","roomId":"6","liveState":"offline"}]}),
+        )
+        .unwrap();
+        let mut next = previous.clone();
+        next.saved_rooms[0].last_checked_at = Some("新的检查时间".into());
+        next.saved_rooms[0].last_error = Some("暂时错误".into());
+        assert!(!has_live_transition(&previous, &next));
+        next.saved_rooms[0].live_state = LIVE_STATE_LIVE.into();
+        assert!(has_live_transition(&previous, &next));
+        let previous = next.clone();
+        next.saved_rooms[0].live_started_at = Some("新一场直播".into());
+        assert!(has_live_transition(&previous, &next));
+    }
+
+    #[test]
+    fn rust_and_typescript_config_field_contracts_match() {
+        use std::collections::BTreeSet;
+        let typescript = include_str!("../../src/types/config.ts");
+        let config = serde_json::to_value(AppConfig::default()).unwrap();
+        for (name, value) in [
+            ("AppConfig", &config),
+            ("AppearanceConfig", &config["appearance"]),
+            ("MessageDisplayConfig", &config["messageDisplay"]),
+            ("NotificationConfig", &config["notification"]),
+            ("ShortcutConfig", &config["shortcuts"]),
+            ("FilterConfig", &config["filter"]),
+        ] {
+            let marker = format!("export type {name} = {{");
+            let body = typescript
+                .split_once(marker.as_str())
+                .unwrap_or_else(|| panic!("缺少前端类型 {name}"))
+                .1
+                .split_once("};")
+                .unwrap()
+                .0;
+            let frontend: BTreeSet<_> = body
+                .lines()
+                .filter_map(|line| {
+                    let (key, _) = line.trim().split_once(':')?;
+                    let key = key.trim_end_matches('?');
+                    key.chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                        .then(|| key.to_string())
+                })
+                .collect();
+            let backend: BTreeSet<_> = value.as_object().unwrap().keys().cloned().collect();
+            assert_eq!(frontend, backend, "配置字段契约不一致：{name}");
+        }
+    }
+
+    #[test]
+    fn corrupt_primary_recovers_without_destroying_the_backup() {
+        let path = test_config_path();
+        let mut config = AppConfig::default();
+        config.room_id = "42".into();
+        write_app_config_to_path(&path, &config).unwrap();
+        config.room_id = "43".into();
+        write_app_config_to_path(&path, &config).unwrap();
+        fs::write(&path, b"{broken").unwrap();
+        assert_eq!(read_app_config_from_path(&path).unwrap().room_id, "42");
+        write_app_config_to_path(&path, &config).unwrap();
+        assert_eq!(
+            read_app_config_from_path(&path.with_extension("json.bak"))
+                .unwrap()
+                .room_id,
+            "42"
+        );
+    }
+
+    #[test]
+    fn concurrent_readers_never_observe_partial_json() {
+        let path = test_config_path();
+        write_app_config_to_path(&path, &AppConfig::default()).unwrap();
+        let reading = path.clone();
+        let thread = thread::spawn(move || {
+            for _ in 0..200 {
+                assert!(read_app_config_from_path(&reading).is_ok());
+            }
+        });
+        for index in 0..20 {
+            let mut config = AppConfig::default();
+            config.room_id = index.to_string();
+            write_app_config_to_path(&path, &config).unwrap();
+        }
+        thread.join().unwrap();
     }
 
     #[test]

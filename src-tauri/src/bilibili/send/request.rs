@@ -41,7 +41,8 @@ pub(super) async fn send_danmaku_request(
     context: &SendRequestContext,
 ) -> Result<SendDanmakuResult, SendDanmakuError> {
     let started_at = Instant::now();
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()
+        .map_err(|error| SendDanmakuError::new(None, error))?
         .post(SEND_DANMAKU_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)

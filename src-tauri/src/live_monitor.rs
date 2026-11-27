@@ -20,10 +20,18 @@ const DEFAULT_INTERVAL_SECONDS: u64 = 6;
 pub(crate) const MIN_INTERVAL_SECONDS: u32 = 2;
 pub(crate) const MAX_INTERVAL_SECONDS: u32 = 60;
 const EVENT_LIVE_STATUS_CHANGED: &str = "live-status-changed";
+const CHECK_ROUND_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Default)]
 pub struct LiveMonitorState {
     checking: Arc<AtomicBool>,
+}
+
+struct CheckingGuard(Arc<AtomicBool>);
+impl Drop for CheckingGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 /// 单个主播开播状态的检查结果，推送给前端刷新列表。
@@ -111,9 +119,10 @@ pub async fn check_all(app: &AppHandle) -> Result<Vec<LiveStatusUpdate>, String>
         return Ok(Vec::new());
     }
 
-    let result = check_all_inner(app).await;
-    checking.store(false, Ordering::SeqCst);
-    result
+    let _guard = CheckingGuard(checking);
+    tokio::time::timeout(CHECK_ROUND_TIMEOUT, check_all_inner(app))
+        .await
+        .map_err(|_| "本轮开播检查超时，将在下一轮重试".to_string())?
 }
 
 async fn check_all_inner(app: &AppHandle) -> Result<Vec<LiveStatusUpdate>, String> {
@@ -136,44 +145,55 @@ async fn check_all_inner(app: &AppHandle) -> Result<Vec<LiveStatusUpdate>, Strin
         .flatten()
         .map(|context| context.cookie_header);
 
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENCY));
-    let mut join_set = tokio::task::JoinSet::new();
-    for (id, room_id, notify_enabled) in targets {
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|error| format!("开播状态检查并发控制失败：{error}"))?;
+    use futures_util::{stream, StreamExt};
+    let requests = stream::iter(targets.clone()).map(|(id, room_id, enabled)| {
         let cookie = cookie.clone();
-        join_set.spawn(async move {
-            let _permit = permit;
+        async move {
             let outcome = check_one(&room_id, cookie.as_deref()).await;
-            (id, room_id, notify_enabled, outcome)
-        });
-    }
-
+            (id, room_id, enabled, outcome)
+        }
+    });
+    let mut requests = requests.buffer_unordered(MAX_CONCURRENCY);
+    let deadline = tokio::time::Instant::now() + CHECK_ROUND_TIMEOUT - Duration::from_secs(1);
     let mut results = Vec::new();
-    while let Some(joined) = join_set.join_next().await {
-        match joined {
-            Ok(entry) => results.push(entry),
-            Err(error) => {
-                warn!(target: "livebell::live", error = %error, "live status check task failed")
+    loop {
+        match tokio::time::timeout_at(deadline, requests.next()).await {
+            Ok(Some(entry)) => results.push(entry),
+            Ok(None) => break,
+            Err(_) => {
+                // 提交已完成结果；未完成房间记一次错误，不能让慢请求拖住其它卡片。
+                for (id, room_id, enabled) in &targets {
+                    if !results.iter().any(|(finished, _, _, _)| finished == id) {
+                        results.push((
+                            id.clone(),
+                            room_id.clone(),
+                            *enabled,
+                            Err("本轮开播检查超时".into()),
+                        ));
+                    }
+                }
+                break;
             }
         }
     }
+    drop(requests);
 
     let checked_at = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let mut just_started_rooms: Vec<SavedRoom> = Vec::new();
     let mut updates: Vec<LiveStatusUpdate> = Vec::new();
 
-    app_config::update_app_config_atomically(app, |config, _latest| {
-        for (id, room_id, notify_enabled, outcome) in &results {
-            let Some(room) = config.saved_rooms.iter_mut().find(|room| &room.id == id) else {
+    app_config::update_live_runtime(app, |config, _latest| {
+        for (id, room_id, _notify_enabled, outcome) in &results {
+            let Some(room) = config
+                .saved_rooms
+                .iter_mut()
+                .find(|room| &room.id == id && &room.room_id == room_id)
+            else {
                 continue;
             };
             let previous = room.live_state.clone();
             let (next_state, just_started) =
-                summarize_live_result(&previous, *notify_enabled, outcome);
+                summarize_live_result(&previous, room.is_enabled, outcome);
             room.live_state = next_state.to_string();
             match outcome {
                 Ok(status) => {
@@ -281,7 +301,7 @@ async fn check_one(room_id: &str, cookie: Option<&str>) -> Result<LiveRoomStatus
 }
 
 async fn fetch_live_status(room_id: &str, cookie: Option<&str>) -> Result<LiveRoomStatus, String> {
-    let mut request = reqwest::Client::new()
+    let mut request = crate::http_client::client()?
         .get(LIVE_STATUS_URL)
         .header(reqwest::header::ACCEPT, "application/json, text/plain, */*")
         .header(reqwest::header::USER_AGENT, BROWSER_USER_AGENT)
@@ -400,6 +420,22 @@ pub async fn live_check_room(room_id: String) -> Result<LiveRoomCheck, String> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn cancelled_check_releases_the_guard() {
+        let checking = Arc::new(AtomicBool::new(true));
+        let flag = checking.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _guard = CheckingGuard(flag);
+            let _ = ready_tx.send(());
+            std::future::pending::<()>().await;
+        });
+        ready_rx.await.unwrap();
+        task.abort();
+        let _ = task.await;
+        assert!(!checking.load(Ordering::SeqCst));
+    }
+
     fn live_status(is_live: bool) -> Result<LiveRoomStatus, String> {
         Ok(LiveRoomStatus {
             is_live,
@@ -433,8 +469,7 @@ mod tests {
     fn enabled_room_reports_just_started_once() {
         let status = live_status(true);
 
-        let (state, just_started) =
-            summarize_live_result(LIVE_STATE_OFFLINE, true, &status);
+        let (state, just_started) = summarize_live_result(LIVE_STATE_OFFLINE, true, &status);
         assert_eq!(state, LIVE_STATE_LIVE);
         assert!(just_started);
 

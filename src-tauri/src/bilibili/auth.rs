@@ -141,7 +141,7 @@ pub fn auth_get_status(app: AppHandle) -> Result<AuthStatus, String> {
 
 #[tauri::command]
 pub async fn auth_start_qr_login() -> Result<QrLoginSession, String> {
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(QR_GENERATE_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -190,7 +190,7 @@ pub async fn auth_poll_qr_login(
         return Err("二维码 key 不能为空".to_string());
     }
 
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(QR_POLL_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)
@@ -389,7 +389,7 @@ pub(crate) fn diagnostic_lines(app: &AppHandle) -> Vec<String> {
 }
 
 async fn validate_cookie_bundle(bundle: &BilibiliCookieBundle) -> Result<AuthStatus, String> {
-    let response = reqwest::Client::new()
+    let response = crate::http_client::client()?
         .get(NAV_URL)
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(USER_AGENT, BROWSER_USER_AGENT)

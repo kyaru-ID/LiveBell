@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { avatarSrc } from "../../utils/avatar";
 import { openExternalUrl } from "../../utils/openExternal";
-import { Check, ExternalLink, Pencil, Trash2, X } from "lucide-react";
+import { Check, ExternalLink, X } from "lucide-react";
 import {
   type LiveState,
   type SavedRoom,
@@ -24,6 +24,7 @@ import {
 } from "../ui";
 import { EmptyState } from "./settings-ui";
 import { sessionStatusText } from "./RoomSessionList";
+import { SavedRoomActions } from "./SavedRoomActions";
 
 export type EditingSavedRoom = {
   displayName: string;
@@ -100,7 +101,7 @@ export function SavedRoomList({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="settings-scroll-list grid min-h-0 content-start gap-1.5 pr-1">
+      <div className="settings-scroll-list grid min-h-0 min-w-0 content-start gap-1.5">
         {rooms.map((room) => {
           const isEditing = editingSavedRoom?.id === room.id;
           const session = findRoomSession(room, sessions);
@@ -121,7 +122,7 @@ export function SavedRoomList({
               className={
                 isEditing
                   ? "drift-theme-transition grid min-w-0 grid-cols-[minmax(0,1fr)_88px_96px_auto] items-center gap-2 rounded-lg border border-drift-line bg-[var(--drift-ui-surface)] p-2 max-[619px]:grid-cols-2 max-[519px]:grid-cols-1"
-                  : `drift-theme-transition grid min-w-0 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border px-3 py-2 max-[519px]:grid-cols-[36px_minmax(0,1fr)] ${
+                  : `drift-theme-transition grid min-w-0 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border px-3 py-2 max-[619px]:grid-cols-[36px_minmax(0,1fr)] ${
                       isDragSource
                         ? "border-drift-signal bg-drift-raised opacity-60"
                         : `border-drift-line bg-[var(--drift-ui-surface)] ${
@@ -255,20 +256,20 @@ export function SavedRoomList({
                 <>
                   <RoomAvatar name={room.displayName} path={room.avatarPath} />
                   <div className="grid min-w-0 gap-0.5">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <strong className="drift-theme-transition truncate text-[11px] text-drift-ink">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <strong className="drift-theme-transition max-w-full truncate text-[13px] text-drift-ink">
                         {room.displayName}
                       </strong>
                       {liveText ? (
                         <span
-                          className={`drift-theme-transition shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${liveStateBadgeClass(room.liveState)}`}
+                          className={`drift-theme-transition shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${liveStateBadgeClass(room.liveState)}`}
                         >
                           {liveText}
                         </span>
                       ) : null}
                       {liveDuration ? (
                         <span
-                          className="drift-theme-transition shrink-0 rounded-full border border-drift-signal bg-[var(--drift-ui-raised)] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[var(--drift-ui-signal-text)]"
+                          className="drift-theme-transition shrink-0 rounded-full border border-drift-signal bg-[var(--drift-ui-raised)] px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--drift-ui-signal-text)]"
                           title={`已开播 ${liveDuration}`}
                         >
                           {liveDuration}
@@ -276,44 +277,32 @@ export function SavedRoomList({
                       ) : null}
                       {session ? (
                         <span
-                          className={`drift-theme-transition shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${sessionBadgeClass(session.status)}`}
+                          className={`drift-theme-transition shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${sessionBadgeClass(session.status)}`}
                         >
                           {sessionStatusText(session)}
                         </span>
                       ) : null}
-                      {room.liveTitle ? (
-                        // 直播标题吃掉这一行剩下的空白：开播时是当前标题（深色），
-                        // 未开播时是 B 站保留的上次标题（灰色，一眼能分辨）。
-                        <span
-                          className={`drift-theme-transition min-w-0 flex-1 truncate text-[10px] ${
-                            room.liveState === "live"
-                              ? "text-drift-ink"
-                              : "text-[var(--drift-ui-muted)]"
-                          }`}
-                        >
-                          {room.liveTitle}
-                        </span>
-                      ) : null}
                     </div>
-                    <span className="drift-data-text drift-theme-transition truncate text-[9px] text-[var(--drift-ui-muted)]">
+                    <span className="drift-theme-transition truncate text-[11px] leading-5 text-[var(--drift-ui-muted)]" title={room.liveTitle || undefined}>
                       {formatRoomMeta(groups, room)}
-                      {room.anchorName ? ` · ${room.anchorName}` : ""}
+                      {room.anchorName && room.anchorName !== room.displayName ? ` · ${room.anchorName}` : ""}
+                      {room.liveTitle ? <> · <span>{room.liveTitle}</span></> : null}
                     </span>
                     {room.lastError ? (
-                      <span className="drift-theme-transition truncate text-[9px] text-[var(--drift-ui-danger)]">
+                      <span className="drift-theme-transition break-words text-[11px] text-[var(--drift-ui-danger)]">
                         {room.lastError}
                       </span>
                     ) : null}
                     {commandError ? (
                       <span
-                        className="drift-theme-transition text-[9px] text-[var(--drift-ui-danger)]"
+                        className="drift-theme-transition break-words text-[11px] text-[var(--drift-ui-danger)]"
                         role="alert"
                       >
                         {commandError}
                       </span>
                     ) : null}
                   </div>
-                  <div className="flex flex-wrap items-center justify-end gap-1 max-[519px]:col-span-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2 max-[619px]:col-span-2">
                     <Toggle
                       aria-label={`开播提醒 ${room.displayName}`}
                       checked={room.isEnabled}
@@ -360,28 +349,10 @@ export function SavedRoomList({
                         }
                         size="sm"
                       >
-                        <ExternalLink aria-hidden="true" size={13} />
+                        <ExternalLink aria-hidden="true" size={15} />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip content="修改">
-                      <IconButton
-                        aria-label="修改"
-                        onClick={() => onStartEditRoom(room)}
-                        size="sm"
-                      >
-                        <Pencil aria-hidden="true" size={13} />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip content="删除">
-                      <IconButton
-                        aria-label="删除"
-                        onClick={() => onDeleteRoom(room.id)}
-                        size="sm"
-                        variant="danger"
-                      >
-                        <Trash2 aria-hidden="true" size={13} />
-                      </IconButton>
-                    </Tooltip>
+                    <SavedRoomActions room={room} onEdit={() => onStartEditRoom(room)} onDelete={() => onDeleteRoom(room.id)} />
                   </div>
                 </>
               )}
